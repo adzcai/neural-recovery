@@ -42,13 +42,11 @@ def get_metrics_normalize(
     p = w.shape[1]
     i_map = np.zeros(p)
 
-    sum_square = 0
     n, d = X.shape
 
-    if w_neg is None:
-        w_neg = np.zeros_like(w_pos)
-
-    recovery = True
+    distances = np.copy(w_pos)
+    if w_neg is not None:
+        distances -= w_neg
 
     for j in range(p):  # for each of the planted neurons
         # get the smallest index k such that ind[k] = j
@@ -66,11 +64,10 @@ def get_metrics_normalize(
         wj /= np.linalg.norm(wj)
 
         # get distance to this planted neuron
-        dist = np.sum((w_pos[:, k] - w_neg[:, k] - wj) ** 2)
-        sum_square += dist
-        recovery = recovery and dist <= atol
+        distances[:, k] -= wj
 
-    dis_abs = np.sqrt(sum_square)
+    dis_abs = np.linalg.norm(distances, ord="fro")
+    recovery = np.allclose(distances, 0, atol=atol)
 
     return {
         "i_map": i_map,
@@ -79,7 +76,7 @@ def get_metrics_normalize(
     }
 
 
-def get_metrics_skip(args, X, dmat, ind, w, w_skip, W_pos, W_neg):
+def get_metrics_skip(args, X, _dmat, _ind, w, w_skip, W_pos, W_neg):
     n, d = X.shape
     dis_abs = np.linalg.norm(w - w_skip)  # recovery error of linear weights
 
@@ -96,7 +93,7 @@ def get_metrics_skip(args, X, dmat, ind, w, w_skip, W_pos, W_neg):
     }
 
 
-def get_loss_skip_relax(args, X, dmat, ind, w, w_skip, W, atol=1e-4):
+def get_loss_skip_relax(args, X, _dmat, _ind, w, w_skip, W, atol=1e-4):
     n, d = X.shape
     dis_abs = np.linalg.norm(w - w_skip)
     X_test = generate_data(n, d, args)[0]
