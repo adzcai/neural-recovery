@@ -1,17 +1,14 @@
 import math
-import os
-import pickle
-from time import time
 
 import numpy as np
 import torch
 
 from networks import ReLUnormal, ReLUskip
-from common import gen_data, get_parser, train_network, validate_data
+from common import generate_data, validate_data
 
 
-def train_model(args, mode="normal"):
-    n, d, sigma = args.n, args.d, args.sigma
+def train_model(n, d, args):
+    mode, sigma = args.mode, args.sigma
 
     data = {}  # empty dict
 
@@ -19,7 +16,7 @@ def train_model(args, mode="normal"):
     if mode == "normal":
         X, w, y = validate_data(args)
     else:
-        X, w = gen_data(args)
+        X, w = generate_data(args)
         y = X @ w
     z = np.random.randn(n) * sigma / math.sqrt(n)
     y += z
@@ -28,7 +25,7 @@ def train_model(args, mode="normal"):
     data["y"] = y
 
     # test data
-    Xtest, z = gen_data(args)
+    Xtest, z = generate_data(args)
     if mode == "normal":
         ytest = np.maximum(0, Xtest @ w)
         norm_y = np.linalg.norm(ytest, axis=0)
@@ -53,81 +50,69 @@ def train_model(args, mode="normal"):
 
     data["loss_train"] = loss_train
     data["loss_test"] = loss_test
+    data["test_err"] = math.sqrt(loss_test[-1])
+
     if mode == "skip":
         # compare the (merged) skip connection weights with the true weights
         w0 = model.w0.weight.detach().numpy()
         alpha0 = model.alpha0.weight.item()
+
+        W1 = model.W1.weight.detach().numpy()
+        alpha = model.alpha.weight.detach().numpy()
+
         data["dis_abs"] = np.linalg.norm(alpha0 * w0.T - w, ord=2)
-    data["dis_test"] = math.sqrt(loss_test[-1])
+        # draft below, but removed, since the additional second layer might cause some interference
+        # data["recovery"] = np.allclose(alpha0 * w0.T, w, atol=1e-4) and np.allclose((alpha @ W1).reshape(-1), 0, atol=1e-4)
+
     return data, model
 
 
-def main():
-    parser = get_parser(neu=None, optw=None)
-    args = parser.parse_args()
-    if args.model == "ReLU_normal":
-        mode = "normal"
-        title = "ncvx_train_normal"
-        if args.neu is None:
-            args.neu = 2
-    elif args.model == "ReLU_skip":
-        parser = get_parser(optw=1)
-        mode = "skip"
-        title = "ncvx_train_skip"
-        if args.optw is None:
-            args.optw = 1
-    else:
-        raise NotImplementedError("Invalid model type.")
-    print(str(args))
+def train_network(model, Xtrain, ytrain, Xtest, ytest, args):
+    if args.verbose:
+        print("---------------------------training---------------------------")
 
-    save_folder = args.save_folder
-    seed = args.seed
-    np.random.seed(seed)
-    sigma = args.sigma
-    sample = args.sample
-    optw = args.optw
-    optx = args.optx
-    flag = args.save_details
-    dvec = np.arange(10, args.d + 1, 10)
-    nvec = np.arange(10, args.n + 1, 10)
-    dlen = dvec.size
-    nlen = nvec.size
+    # get initialization statistics
+    y_predict = model(Xtrain)
+    loss = torch.linalg.norm(y_predict - ytrain) ** 2
+    train_err_init = loss.item()
+    with torch.no_grad():
+        test_err_init = torch.linalg.norm(model(Xtest) - ytest) ** 2
+        test_err_init = test_err_init.item()
 
-    if not os.path.exists(save_folder):
-        os.makedirs(save_folder)
+    loss_train = np.zeros(args.num_epoch)
+    loss_test = np.zeros(args.num_epoch)
 
-    if mode == "skip":
-        dis_abs = np.zeros((nlen, dlen, sample))
-    dis_test = np.zeros((nlen, dlen, sample))
+    if args.verbose:
+        print(
+            "Epoch [{}/{}], Train error: {}, Test error: {}".format(
+                0, args.num_epoch, train_err_init, test_err_init
+            )
+        )
 
-    for nidx, n in enumerate(nvec):
-        print("n = " + str(n))
-        t0 = time()
-        for didx, d in enumerate(dvec):
-            for i in range(sample):
-                data, model = train_model(args)
-                if mode == "skip":
-                    dis_abs[nidx, didx, i] = data["dis_abs"]
-                dis_test[nidx, didx, i] = data["dis_test"]
-                if flag:
-                    fname = "_n{}_d{}_w{}_X{}_sig{}_sample{}".format(
-                        n, d, optw, optx, sigma, i
-                    )
-                    file = open(save_folder + title + fname + ".pkl", "wb")
-                    pickle.dump(data, file)
-                    file.close()
-                    torch.save(model.state_dict(), save_folder + model.name() + fname)
-
-        t1 = time()
-        print("time = " + str(t1 - t0))
-
-    fname = "_n{}_d{}_w{}_X{}_sig{}_sample{}".format(
-        args.n, args.d, optw, optx, sigma, sample
+    optimizer = torch.optim.AdamW(
+        model.parameters(), lr=args.learning_rate, weight_decay=args.beta
     )
-    if mode == "skip":
-        np.save(save_folder + "dis_abs_" + title + fname, dis_abs)
-    np.save(save_folder + "dis_test_" + title + fname, dis_test)
 
+    for epoch in range(args.num_epoch):
+        optimizer.zero_grad()
+        y_predict = model(Xtrain)
+        loss = torch.linalg.norm(y_predict - ytrain) ** 2
+        loss.backward()
+        optimizer.step()
 
-if __name__ == "__main__":
-    main()
+        loss_train[epoch] = loss.item()
+        with torch.no_grad():
+            test_err = torch.linalg.norm(model(Xtest) - ytest) ** 2
+            loss_test[epoch] = test_err.item()
+
+        if args.verbose:
+            print(
+                "Epoch [{}/{}], Train error: {}, Test error: {}".format(
+                    epoch + 1, args.num_epoch, loss_train[epoch], loss_test[epoch]
+                )
+            )
+
+    loss_train = np.concatenate([np.array([train_err_init]), loss_train])
+    loss_test = np.concatenate([np.array([test_err_init]), loss_test])
+
+    return loss_train, loss_test

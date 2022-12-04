@@ -1,43 +1,39 @@
 import math
-import os
-import pickle
-from time import time
-
 import cvxpy as cp
 import numpy as np
 
-from common import check_feasible, gen_data, get_arr_patterns, get_parser, validate_data
+from ReLU_normal.common_normal import get_loss
+from common import get_arrangement_patterns, validate_data
 
 
-def solve_problem(args):
-    n, d, sigma, neu = args.n, args.d, args.sigma, args.neu
-    data = {}  # empty dict
-    X, w, y = validate_data(args)
-    z = np.random.randn(n) * sigma / math.sqrt(n)  # add noise
-    y = y + z
-    data["X"] = X
-    data["w"] = w
-    data["y"] = y
+def get_problem(X, y, dmat, beta):
+    """
+    Implement the convex optimization problem in cvxpy.
+    Equation 26 in the paper, minus the skip connection.
+    """
 
-    dmat, ind, data["exist_all_one"] = get_arr_patterns(X, n, d, w)
+    n, d = X.shape
+    p = dmat.shape[1]
 
-    # CVXPY variables
-    m1 = dmat.shape[1]
-    W1 = cp.Variable((d, m1))
-    W2 = cp.Variable((d, m1))
-    expr = np.zeros(n)
+    W1 = cp.Variable((d, p))
+    W2 = cp.Variable((d, p))
+
+    expr = cp.Variable(n)  # dummy variable for constructing objective
+
     constraints = []
-    for i in range(m1):
+    for i in range(p):
         di = dmat[:, i].reshape((n, 1))
         Xi = di * X
         Ui, S, Vh = np.linalg.svd(Xi, full_matrices=False)
-        ri = np.linalg.matrix_rank(Xi)
+        ri = np.linalg.matrix_rank(Xi)  # rank of Xi
         if ri == 0:
             constraints += [W1[:, i] == 0, W2[:, i] == 0]
         else:
             expr += Ui[:, np.arange(ri)] @ (W1[np.arange(ri), i] - W2[np.arange(ri), i])
+
             X1 = X @ Vh[np.arange(ri), :].T @ np.diag(1 / S[np.arange(ri)])
             X2 = (2 * di - 1) * X1
+
             constraints += [
                 X2 @ W1[np.arange(ri), i] >= 0,
                 X2 @ W2[np.arange(ri), i] >= 0,
@@ -48,88 +44,43 @@ def solve_problem(args):
                     W2[np.arange(ri, d), i] == 0,
                 ]
 
+    # objective
     loss = cp.norm(expr - y, 2) ** 2
     regw = cp.mixed_norm(W1.T, 2, 1) + cp.mixed_norm(W2.T, 2, 1)
-    beta = 1e-6
     obj = loss + beta * regw
-    # solve the problem
+
     prob = cp.Problem(cp.Minimize(obj), constraints)
+
+    return prob, {"W1": W1, "W2": W2}
+
+
+def solve_problem(n, d, args):
+    sigma, n_planted = args.sigma, args.neu
+    data = {}  # empty dict
+    X, w, y = validate_data(n, d, args)
+    z = np.random.randn(n) * sigma / math.sqrt(n)  # add noise
+    y = y + z
+    data["X"] = X
+    data["w"] = w
+    data["y"] = y
+
+    dmat, ind, data["exist_all_one"] = get_arrangement_patterns(X, w)
+
+    prob, variables = get_problem(X, y, dmat, args.beta)
+
+    # solve the problem
     param_dict = {}
     prob.solve(solver=cp.MOSEK, warm_start=True, verbose=False, mosek_params=param_dict)
 
-    w1 = W1.value
-    w2 = W2.value
-    data["i_map"] = np.zeros(neu)
-    sum_square = 0
-    for j in range(neu):
-        k = np.nonzero(ind == j)[0][0]
-        data["i_map"][j] = k
-        wj = w[:, j]
-        dj = dmat[:, k]
-        Xj = dj.reshape((n, 1)) * X
-        Uj, Sj, Vjh = np.linalg.svd(Xj, full_matrices=False)
-        wj = (Sj.reshape((d, 1)) * Vjh) @ wj
-        wj = wj / np.linalg.norm(wj)
-        sum_square += np.linalg.norm(w1[:, k] - w2[:, k] - wj) ** 2
-    dis1 = math.sqrt(sum_square)
+    w1 = variables["W1"].value
+    w2 = variables["W2"].value
 
     data["dmat"] = dmat
     data["opt_w1"] = w1
     data["opt_w2"] = w2
-    data["dis_abs"] = dis1
-    return data
 
-
-def main():
-    parser = get_parser(neu=2)
-    args = parser.parse_args()
-    print(str(args))
-
-    save_folder = args.save_folder
-    seed = args.seed
-    np.random.seed(seed)
-    sigma = args.sigma
-    sample = args.sample
-    optw = args.optw
-    optx = args.optx
-    neu = args.neu
-    flag = args.save_details
-    dvec = np.arange(10, args.d + 1, 10)
-    nvec = np.arange(10, args.n + 1, 10)
-    dlen = dvec.size
-    nlen = nvec.size
-
-    if not os.path.exists(save_folder):
-        os.makedirs(save_folder)
-
-    dis_abs = np.zeros((nlen, dlen, sample))
-
-    for nidx, n in enumerate(nvec):
-        print("n = " + str(n))
-        t0 = time()
-        for didx, d in enumerate(dvec):
-            if n < d:
-                dis_abs[nidx, didx, :] = None
-                continue
-            for i in range(sample):
-                data = solve_problem(n, d, sigma, neu)
-                dis_abs[nidx, didx, i] = data["dis_abs"]
-                if flag:
-                    fname = "cvx_train_normal_n{}_d{}_w{}_X{}_sig{}_sample{}".format(
-                        n, d, optw, optx, sigma, i
-                    )
-                    file = open(save_folder + fname + ".pkl", "wb")
-                    pickle.dump(data, file)
-                    file.close()
-
-        t1 = time()
-        print("time = " + str(t1 - t0))
-
-    fname = "cvx_train_normal_n{}_d{}_w{}_X{}_sig{}_sample{}".format(
-        args.n, args.d, optw, optx, sigma, sample
+    data["i_map"], data["dis_abs"], data["recovery"] = get_loss(
+        n_planted, X, dmat, ind, w, w1, w2
     )
-    np.save(save_folder + "dis_abs_" + fname, dis_abs)
 
-
-if __name__ == "__main__":
-    main()
+    return data

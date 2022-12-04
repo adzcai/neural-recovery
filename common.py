@@ -5,22 +5,21 @@ import numpy as np
 import scipy.optimize as sciopt
 
 
-def get_parser(neu=None, default_samples=10, optw=0):
+def get_parser(n_planted=None, samples=10, optw=0):
     parser = argparse.ArgumentParser(description="phase transition")
     parser.add_argument(
-        "--convex",
-        type=argparse.BooleanOptionalAction,
-        default=False,
-        help="whether to formulate optimization as convex program or nonconvex (neural network training) problem",
+        "--form",
+        type=str,
+        default="convex",
+        choices=["nonconvex", "convex", "minnorm"],
+        help="whether to formulate optimization as convex program, nonconvex (neural network training), or min norm (relaxed)",
     )
     parser.add_argument("--n", type=int, default=400, help="number of sample")
     parser.add_argument("--d", type=int, default=100, help="number of dimension")
     parser.add_argument("--seed", type=int, default=97006855, help="random seed")
+    parser.add_argument("--sample", type=int, default=samples, help="number of trials")
     parser.add_argument(
-        "--sample", type=int, default=default_samples, help="number of trials"
-    )
-    parser.add_argument(
-        "--neu", type=int, default=neu, help="number of planted neurons"
+        "--neu", type=int, default=n_planted, help="number of planted neurons"
     )
 
     parser.add_argument("--optw", type=int, default=optw, help="choice of w")
@@ -44,7 +43,7 @@ def get_parser(neu=None, default_samples=10, optw=0):
     parser.add_argument(
         "--save_details",
         type=bool,
-        default=True,
+        default=False,
         help="whether to save training results",
     )
     parser.add_argument(
@@ -60,19 +59,21 @@ def get_parser(neu=None, default_samples=10, optw=0):
     )
     parser.add_argument("--lr", type=float, default=2e-3, help="learning rate")
 
-    subparsers = parser.add_subparsers(required=True, dest="model", description="learned model for recovery")
-    for model in ("ReLU", "ReLU_skip", "ReLU_normal"):
+    subparsers = parser.add_subparsers(
+        required=True, dest="model", description="learned model for recovery"
+    )
+    for model in ("basic", "skip", "normalize"):
         subparsers.add_parser(model)
 
     return parser
 
 
-def validate_data(args, eps=1e-10):
+def validate_data(n, d, args, eps=1e-10):
     """
     We don't want any neuron to return all 0s across the dataset
     """
     while True:
-        X, w = gen_data(args)
+        X, w = generate_data(n, d, args)
         w /= np.linalg.norm(w, axis=0)
         y = np.maximum(0, X @ w)
         norm_y = np.linalg.norm(y, axis=0)
@@ -82,7 +83,7 @@ def validate_data(args, eps=1e-10):
     return X, w, y
 
 
-def check_feasible(X):
+def check_degenerate_arr_pattern(X):
     """
     Check if there exists some hyperplane passing through the origin
     such that all elements of X lie on on side of the hyperplane,
@@ -101,25 +102,36 @@ def check_feasible(X):
         return True  # exist all-one arrangement
 
 
-def get_arr_patterns(X, n, d, w=None):
+def get_arrangement_patterns(X, w=None):
+    """
+    Get all possible arrangement patterns of X.
+    That is, consider the set of hyperplanes passing through the origin with normal vector h.
+    An "arrangement pattern" assigns 1 to all samples on the positive side of the hyperplane
+    and 0 to all samples on the negative side.
+    :return:
+    - a (n x p) matrix of the arrangement patterns
+    - the indices in the original randomly generated h
+    - see `check_feasible`
+    """
+    n, d = X.shape
     mh = max(n, 50)
     U1 = np.random.randn(d, mh)
     if w is not None:
         U1 = np.concatenate([w, U1], axis=1)
     arr_patterns = X @ U1 >= 0
     arr_patterns, ind = np.unique(arr_patterns, axis=1, return_index=True)
-    feasible = check_feasible(X)
-    if feasible:
+    exists_all_ones = check_degenerate_arr_pattern(X)
+    if exists_all_ones:
         arr_patterns = np.concatenate([arr_patterns, np.ones((n, 1))], axis=1)
-    return arr_patterns, ind, feasible
+    return arr_patterns, ind, exists_all_ones
 
 
-def gen_data(args):
-    n, d = args.n, args.d
+def generate_data(n: int, d: int, args):
+    optw, optx = args.optw, args.optx
     X = np.random.randn(n, d) / math.sqrt(n)
-    if args.optx in [1, 3]:
+    if optx in [1, 3]:
         X = X**3
-    if args.optx in [2, 4]:
+    if optx in [2, 4]:
         U, S, Vh = np.linalg.svd(X, full_matrices=False)
         if n < d:
             X = Vh
@@ -127,76 +139,25 @@ def gen_data(args):
             X = U
 
     if args.neu is not None:
-        # involving a planted neuron
-        if args.optw == 0:
+        # involving multiple planted neurons
+        if optw == 0:
             w = np.random.randn(d, args.neu)
-        elif args.optw == 1:
+        elif optw == 1:
             w = np.eye(d, args.neu)
-        elif args.optw == 2:
+        elif optw == 2:
             if args.neu == 2:
                 w = np.random.randn(d, 1)
                 w = np.concatenate([w, -w], axis=1)
             else:
                 raise TypeError("Invalid choice of planted neurons.")
     else:
-        if args.optw == 0:
+        if optw == 0:
             w = np.random.randn(d)
             w = w / np.linalg.norm(w)
-        elif args.optw == 1:
+        elif optw == 1:
             U, S, Vh = np.linalg.svd(X, full_matrices=False)
             w = Vh[-1, :].T
-        elif args.optw == 2:
+        elif optw == 2:
             assert args.m is not None, "must specify number of hidden neurons m"
 
     return X, w
-
-
-def train_network(model, Xtrain, ytrain, Xtest, ytest, args):
-    if args.verbose:
-        print("---------------------------training---------------------------")
-
-    # get initialization statistics
-    y_predict = model(Xtrain)
-    loss = torch.linalg.norm(y_predict - ytrain) ** 2
-    train_err_init = loss.item()
-    with torch.no_grad():
-        test_err_init = torch.linalg.norm(model(Xtest) - ytest) ** 2
-        test_err_init = test_err_init.item()
-
-    loss_train = np.zeros(args.num_epoch)
-    loss_test = np.zeros(args.num_epoch)
-
-    if args.verbose:
-        print(
-            "Epoch [{}/{}], Train error: {}, Test error: {}".format(
-                0, args.num_epoch, train_err_init, test_err_init
-            )
-        )
-
-    optimizer = torch.optim.AdamW(
-        model.parameters(), lr=args.learning_rate, weight_decay=args.beta
-    )
-
-    for epoch in range(args.num_epoch):
-        optimizer.zero_grad()
-        y_predict = model(Xtrain)
-        loss = torch.linalg.norm(y_predict - ytrain) ** 2
-        loss.backward()
-        optimizer.step()
-
-        loss_train[epoch] = loss.item()
-        with torch.no_grad():
-            test_err = torch.linalg.norm(model(Xtest) - ytest) ** 2
-            loss_test[epoch] = test_err.item()
-
-        if args.verbose:
-            print(
-                "Epoch [{}/{}], Train error: {}, Test error: {}".format(
-                    epoch + 1, args.num_epoch, loss_train[epoch], loss_test[epoch]
-                )
-            )
-
-    loss_train = np.concatenate([np.array([train_err_init]), loss_train])
-    loss_test = np.concatenate([np.array([test_err_init]), loss_test])
-
-    return loss_train, loss_test
