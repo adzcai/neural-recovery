@@ -1,34 +1,25 @@
-import argparse
-import math
 import os
-import pickle
 from time import time
 
 import numpy as np
 
-from common import check_feasible, gen_data, get_parser
+from common import check_feasible, get_parser, validate_data
 
 
 def check_irr(args):
     n, d, neu = args.n, args.d, args.neu
     eps = 1e-10
-    while True:
-        X, w = gen_data(args)
-        nrmw = np.linalg.norm(w, axis=0)
-        w = w / nrmw
-        y = np.maximum(0, X @ w)
-        nrmy = np.linalg.norm(y, axis=0)
-        if np.all(nrmy >= eps):
-            break
+    X, w, _y = validate_data(args, eps=eps)
 
     mh = max(n * 2, 50)
     U1 = np.concatenate([w, np.random.randn(d, mh)], axis=1)
     dmat = X @ U1 >= 0
     dmat, ind = np.unique(dmat, axis=1, return_index=True)
-    j_array = np.nonzero(ind <= neu - 1)[0]
-    j_map = ind[j_array]
     if check_feasible(X):
         dmat = np.concatenate([dmat, np.ones((n, 1))], axis=1)
+
+    j_array = np.nonzero(ind <= neu - 1)[0]
+    j_map = ind[j_array]
 
     U = np.zeros((n, 0))
     uu = []

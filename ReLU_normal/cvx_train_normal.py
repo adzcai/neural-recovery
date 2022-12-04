@@ -1,4 +1,3 @@
-import argparse
 import math
 import os
 import pickle
@@ -6,38 +5,21 @@ from time import time
 
 import cvxpy as cp
 import numpy as np
-import scipy.optimize as sciopt
 
-from common import check_feasible, gen_data, get_parser
+from common import check_feasible, gen_data, get_arr_patterns, get_parser, validate_data
 
 
 def solve_problem(args):
     n, d, sigma, neu = args.n, args.d, args.sigma, args.neu
     data = {}  # empty dict
-    while True:
-        X, w = gen_data(args)
-        nrmw = np.linalg.norm(w, axis=0)
-        w = w / nrmw
-        y = np.maximum(0, X @ w)
-        nrmy = np.linalg.norm(y, axis=0)
-        if np.all(nrmy >= 1e-10):
-            break
-    y = np.sum(y / nrmy, axis=1)
-    z = np.random.randn(n) * sigma / math.sqrt(n)
+    X, w, y = validate_data(args)
+    z = np.random.randn(n) * sigma / math.sqrt(n)  # add noise
     y = y + z
     data["X"] = X
     data["w"] = w
     data["y"] = y
 
-    mh = max(n, 50)
-    U1 = np.concatenate([w, np.random.randn(d, mh)], axis=1)
-    dmat = X @ U1 >= 0
-    dmat, ind = np.unique(dmat, axis=1, return_index=True)
-    if check_feasible(X):
-        dmat = np.concatenate([dmat, np.ones((n, 1))], axis=1)
-        data["exist_all_one"] = True
-    else:
-        data["exist_all_one"] = False
+    dmat, ind, data["exist_all_one"] = get_arr_patterns(X, n, d, w)
 
     # CVXPY variables
     m1 = dmat.shape[1]
@@ -65,6 +47,7 @@ def solve_problem(args):
                     W1[np.arange(ri, d), i] == 0,
                     W2[np.arange(ri, d), i] == 0,
                 ]
+
     loss = cp.norm(expr - y, 2) ** 2
     regw = cp.mixed_norm(W1.T, 2, 1) + cp.mixed_norm(W2.T, 2, 1)
     beta = 1e-6

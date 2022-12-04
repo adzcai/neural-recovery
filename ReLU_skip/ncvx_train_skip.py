@@ -46,7 +46,7 @@ def train_model(args):
     return data, model
 
 
-def main():
+def main(title="ncvx_train_skip"):
     parser = get_parser(optw=1)
     args = parser.parse_args()
     print(str(args))
@@ -82,7 +82,7 @@ def main():
                     fname = "_n{}_d{}_w{}_X{}_sig{}_sample{}".format(
                         n, d, optw, optx, sigma, i
                     )
-                    file = open(save_folder + "ncvx_train_skip" + fname + ".pkl", "wb")
+                    file = open(save_folder + title + fname + ".pkl", "wb")
                     pickle.dump(data, file)
                     file.close()
                     torch.save(model.state_dict(), save_folder + model.name() + fname)
@@ -93,8 +93,8 @@ def main():
     fname = "_n{}_d{}_w{}_X{}_sig{}_sample{}".format(
         args.n, args.d, optw, optx, sigma, sample
     )
-    np.save(save_folder + "dis_abs_ncvx_train_skip" + fname, dis_abs)
-    np.save(save_folder + "dis_test_ncvx_train_skip" + fname, dis_test)
+    np.save(save_folder + "dis_abs_" + title + fname, dis_abs)
+    np.save(save_folder + "dis_test_" + title + fname, dis_test)
 
 
 if __name__ == "__main__":

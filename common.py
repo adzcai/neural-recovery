@@ -64,6 +64,21 @@ def get_parser(neu=None, default_samples=10, optw=0):
     return parser
 
 
+def validate_data(args, eps=1e-10):
+    """
+    We don't want any neuron to return all 0s across the dataset
+    """
+    while True:
+        X, w = gen_data(args)
+        w /= np.linalg.norm(w, axis=0)
+        y = np.maximum(0, X @ w)
+        norm_y = np.linalg.norm(y, axis=0)
+        if np.all(norm_y >= eps):
+            break
+    y = np.sum(y / norm_y, axis=1)
+    return X, w, y
+
+
 def check_feasible(X):
     """
     Check if there exists some hyperplane passing through the origin
@@ -81,6 +96,19 @@ def check_feasible(X):
         return False  # no all-one arrangement
     else:
         return True  # exist all-one arrangement
+
+
+def get_arr_patterns(X, n, d, w=None):
+    mh = max(n, 50)
+    U1 = np.random.randn(d, mh)
+    if w is not None:
+        U1 = np.concatenate([w, U1], axis=1)
+    arr_patterns = X @ U1 >= 0
+    arr_patterns, ind = np.unique(arr_patterns, axis=1, return_index=True)
+    feasible = check_feasible(X)
+    if feasible:
+        arr_patterns = np.concatenate([arr_patterns, np.ones((n, 1))], axis=1)
+    return arr_patterns, ind, feasible
 
 
 def gen_data(args):

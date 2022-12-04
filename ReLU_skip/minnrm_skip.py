@@ -7,7 +7,7 @@ from time import time
 import cvxpy as cp
 import numpy as np
 
-from common import check_feasible, gen_data, get_parser
+from common import check_feasible, gen_data, get_arr_patterns, get_parser
 
 
 def solve_problem(n, d, sigma):
@@ -19,15 +19,7 @@ def solve_problem(n, d, sigma):
     data["w"] = w
     data["y"] = y
 
-    mh = max(n, 50)
-    U1 = np.random.randn(d, mh)
-    dmat = X @ U1 >= 0
-    dmat, ind = np.unique(dmat, axis=1, return_index=True)
-    if check_feasible(X):
-        dmat = np.concatenate([dmat, np.ones((n, 1))], axis=1)
-        data["exist_all_one"] = True
-    else:
-        data["exist_all_one"] = False
+    dmat, _ind, data["exist_all_one"] = get_arr_patterns(X, n, d)
 
     # CVXPY variables
     m1 = dmat.shape[1]
