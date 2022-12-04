@@ -91,8 +91,8 @@ def main():
         os.makedirs(save_folder)
 
     record_properties = get_record_properties(args.model, args.form)
-    records = defaultdict(lambda: np.zeros((len(n), len(d), args.sample)))
-    times = np.zeros(len(n))
+    records = defaultdict(lambda: np.zeros((len(nvec), len(dvec), args.sample)))
+    times = np.zeros(len(nvec))
 
     for nidx, n in tqdm(enumerate(nvec), position=0, leave=True):
         print("n = " + str(n))
