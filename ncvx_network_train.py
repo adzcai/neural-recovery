@@ -4,36 +4,29 @@ import numpy as np
 import torch
 
 from networks import ReLUnormal, ReLUskip
-from common import generate_data, validate_data
+from common import (
+    default_planted_model,
+    generate_X,
+    generate_data,
+    generate_y,
+    get_fname,
+    get_save_folder,
+)
 
 
 def train_model(n, d, args):
-    mode, sigma = args.mode, args.sigma
-
+    sigma = args.sigma
     data = {}  # empty dict
 
     # training data
-    if mode == "normal":
-        X, w, y = validate_data(args)
-    else:
-        X, w = generate_data(args)
-        y = X @ w
-    z = np.random.randn(n) * sigma / math.sqrt(n)
-    y += z
-    data["X"] = X
-    data["w"] = w
-    data["y"] = y
+    X, w, y = generate_data(n, d, args)
 
     # test data
-    Xtest, z = generate_data(args)
-    if mode == "normal":
-        ytest = np.maximum(0, Xtest @ w)
-        norm_y = np.linalg.norm(ytest, axis=0)
-        ytest = np.sum(
-            ytest / norm_y, axis=1
-        )  # equivalent to a "second layer" of just 1s
-    else:
-        ytest = Xtest @ w
+    Xtest = generate_X(n, d, args)
+    ytest = generate_y(
+        args, X, w, sigma=sigma, eps=0, model=default_planted_model(args)
+    )
+
     data["X_test"] = Xtest
     data["y_test"] = ytest
 
@@ -42,7 +35,7 @@ def train_model(n, d, args):
     ]
 
     m = n + 1
-    if mode == "normal":
+    if args.model == "normal":
         model = ReLUnormal(m=m, n=n, d=d)
     else:
         model = ReLUskip(m=m, n=n, d=d)
@@ -52,19 +45,22 @@ def train_model(n, d, args):
     data["loss_test"] = loss_test
     data["test_err"] = math.sqrt(loss_test[-1])
 
-    if mode == "skip":
+    if args.model == "skip":
         # compare the (merged) skip connection weights with the true weights
         w0 = model.w0.weight.detach().numpy()
         alpha0 = model.alpha0.weight.item()
-
-        W1 = model.W1.weight.detach().numpy()
-        alpha = model.alpha.weight.detach().numpy()
 
         data["dis_abs"] = np.linalg.norm(alpha0 * w0.T - w, ord=2)
         # draft below, but removed, since the additional second layer might cause some interference
         # data["recovery"] = np.allclose(alpha0 * w0.T, w, atol=1e-4) and np.allclose((alpha @ W1).reshape(-1), 0, atol=1e-4)
 
-    return data, model
+    if args.save_details:
+        torch.save(
+            model.state_dict(),
+            get_save_folder(args) + model.name() + get_fname(args, n, d),
+        )
+
+    return data
 
 
 def train_network(model, Xtrain, ytrain, Xtest, ytest, args):
