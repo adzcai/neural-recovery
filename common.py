@@ -71,7 +71,9 @@ def get_parser(n_planted=None, samples=10, optw=0):
 
 def validate_data(n, d, args, eps=1e-10):
     """
-    We don't want any neuron to return all 0s across the dataset
+    Generate X (n x d), w (d x m), and y (n),
+    such that y[i] = sum_j ( relu( X[i] @ w[:, j] ) ).
+    Enforce that no column of y is all 0s.
     """
     while True:
         X, w = generate_data(n, d, args)

@@ -135,7 +135,7 @@ def main():
         t1 = time()
         times[nidx] = t1 - t0
 
-    print("done experiment. times = " + times.round(2).astype(str))
+    print("done experiment. times = " + str(times.round(2)))
 
     xgrid, ygrid = np.meshgrid(nvec, dvec)
     fig, ax = plt.subplots(len(record_properties), 1, figsize=(5, 5 * len(record_properties)))
