@@ -1,10 +1,9 @@
 import numpy as np
 import os
 from time import time
-from common import get_parser, get_save_folder
+from common import get_parser, get_save_folder, plot_and_save
 import pickle
 from collections import defaultdict
-import matplotlib.pyplot as plt
 from tqdm import tqdm
 
 from ncvx_network_train import train_model
@@ -97,34 +96,7 @@ def main():
         times[nidx] = t1 - t0
 
     print("done experiment. times = " + str(times.round(2)))
-
-    xgrid, ygrid = np.meshgrid(nvec, dvec)
-    fig, ax = plt.subplots(
-        len(record_properties), 1, figsize=(5, 5 * len(record_properties))
-    )
-    for i, prop in enumerate(record_properties):
-        save_path = save_folder + "/" + prop
-        np.save(save_path, records[prop])
-        print("Saved " + prop + " to " + save_path + ".npy")
-        grid = np.mean(records[prop], axis=2).T
-
-        # if plot phase transition for distance, use extend='max'
-        cs = ax[i].contourf(
-            xgrid, ygrid, grid, levels=np.linspace(0, 1), cmap="jet", extend="max"
-        )
-
-        # if plot phase transition for probability
-        # cs = ax.contourf(X, Y, Z, levels=np.arange(0,1.1,0.1), cmap=cm.jet)
-        # if plot the boundary of success with probability 1
-        # cs2 = ax.contour(X, Y, Z, levels=[0.9, 1], colors=('k',), linewidths=(2,))
-
-        fig.colorbar(cs, ax=ax[i])
-        ax[i].set_xlabel("n")
-        ax[i].set_ylabel("d")
-        ax[i].set_title(prop)
-
-    fig.savefig(save_folder + "/figure.png")
-    plt.show()
+    plot_and_save(save_folder, records, record_properties, nvec, dvec)
 
 
 if __name__ == "__main__":

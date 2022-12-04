@@ -1,6 +1,6 @@
 import argparse
 from typing import Optional
-import torch
+import matplotlib.pyplot as plt
 import math
 import numpy as np
 import scipy.optimize as sciopt
@@ -242,3 +242,34 @@ def generate_y(X, w, sigma, eps=1e-10, model="linear"):
 
 def default_planted_model(args):
     return "relu" if args.model == "normalize" else "linear"
+
+
+
+def plot_and_save(save_folder, records, record_properties, nvec, dvec):
+    xgrid, ygrid = np.meshgrid(nvec, dvec)
+    fig, ax = plt.subplots(
+        1, len(record_properties), figsize=(5 * len(record_properties), 5)
+    )
+    for i, prop in enumerate(record_properties):
+        save_path = save_folder + "/" + prop
+        np.save(save_path, records[prop])
+        print("Saved " + prop + " to " + save_path + ".npy")
+        grid = np.mean(records[prop], axis=2).T
+
+        # if plot phase transition for distance, use extend='max'
+        cs = ax[i].contourf(
+            xgrid, ygrid, grid, levels=np.linspace(0, 1), cmap="jet", extend="max"
+        )
+
+        # if plot phase transition for probability
+        # cs = ax.contourf(X, Y, Z, levels=np.arange(0,1.1,0.1), cmap=cm.jet)
+        # if plot the boundary of success with probability 1
+        # cs2 = ax.contour(X, Y, Z, levels=[0.9, 1], colors=('k',), linewidths=(2,))
+
+        fig.colorbar(cs, ax=ax[i])
+        ax[i].set_xlabel("n")
+        ax[i].set_ylabel("d")
+        ax[i].set_title(prop)
+
+    fig.savefig(save_folder + "/figure.png")
+    plt.show()

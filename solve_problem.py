@@ -14,8 +14,8 @@ def solve_problem(n, d, args):
     data = {}
     X, w, y = generate_data(n, d, args, data=data)
 
-    mh = max(50, 2 * n if args.form != "irregular" else n)
-    dmat, ind, data["exist_all_one"] = get_arrangement_patterns(X, w, mh)
+    mh = max(50, 2 * n if args.form == "irregular" else n)
+    dmat, ind, data["exist_all_one"] = get_arrangement_patterns(X, w if args.model == "normalize" else None, mh=mh)
 
     if args.model == "skip":
         if args.form == "convex":

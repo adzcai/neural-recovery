@@ -31,7 +31,7 @@ def cvx_relu_skip(X, y, dmat, beta):
     return prob, OrderedDict(W0=W0, W1=W_pos, W2=W_neg)
 
 
-def cvx_relu_skip_relax(X, y, dmat):
+def cvx_relu_skip_relax(X, y, dmat, beta):
     """
     Equation 15 of the paper,
     a relaxation (by dropping inequality constraints) of Equation 6,
@@ -113,10 +113,11 @@ def cvx_relu_normalize_relax(X, y, dmat, _beta):
     W = cp.Variable((d, p))
     expr = cp.Variable(n)
 
+    # constraints
     constraints = []
     for i in range(p):
         Xi = dmat[:, i].reshape((n, 1)) * X
-        Ui, S, Vh = np.linalg.svd(Xi, full_matrices=False)
+        Ui, _Si, _Vhi = np.linalg.svd(Xi, full_matrices=False)
         ri = np.linalg.matrix_rank(Xi)
         if ri == d:
             expr += Ui @ W[:, i]
