@@ -13,16 +13,16 @@ def get_problem(X, y, dmat):
     W = cp.Variable((d, p))  # relu connections (second layer is all ones)
 
     obj = cp.norm(W0, 2) + cp.mixed_norm(W.T, 2, 1)
-    # \sum_j D_j X W + W0 == y
+    # \sum_j D_j X W_j + X w_0 == y
     constraints = [cp.sum(cp.multiply(dmat, (X @ W)), axis=1) + X @ W0 == y]
 
     return obj, constraints, {"W0": W0, "W": W}
 
 
-def solve_problem(n, d, sigma):
+def solve_problem(n, d, args):
     data = {}  # empty dict
-    X, w = generate_data(n, d)
-    z = np.random.randn(n) * sigma / math.sqrt(n)
+    X, w = generate_data(n, d, args)
+    z = np.random.randn(n) * args.sigma / math.sqrt(n)
     y = X @ w + z
     data["X"] = X
     data["w"] = w
