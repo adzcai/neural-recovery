@@ -6,6 +6,11 @@ from common import generate_data, get_arrangement_patterns
 
 
 def get_problem(X, y, dmat):
+    """
+    Equation 15 of the paper,
+    a relaxation (by dropping inequality constraints) of Equation 6,
+    which is implemented in `cvx_train_skip.py`.
+    """
     d = X.shape[1]
     p = dmat.shape[1]
 
@@ -40,7 +45,7 @@ def solve_problem(n, d, args):
     W = variables["W"].value
     dis1 = np.linalg.norm(w - w0)
 
-    X1, z = generate_data(n, d)
+    X1, z = generate_data(n, d, args)
     y_predict = np.sum(np.maximum(0, X1 @ W), axis=1) + X1 @ w0
     dis2 = np.linalg.norm(y_predict - X1 @ w)
 
@@ -49,4 +54,5 @@ def solve_problem(n, d, args):
     data["opt_w"] = W
     data["dis_abs"] = dis1  # distance between true w and learned w0
     data["test_err"] = dis2
+    data["recovery"] = np.allclose(W, 0, atol=1e-4)
     return data

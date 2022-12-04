@@ -9,7 +9,7 @@ from common import get_arrangement_patterns, validate_data
 def get_problem(X, y, dmat):
     """
     Implement Equation 17 in the paper.
-    After dropping all inequality constraints in equation 16,
+    After dropping all inequality constraints in equation 16 (implemented in `cvx_train_normal.py`),
     we're left with the group l1 norm minimization problem implemented below.
     """
     n, d = X.shape

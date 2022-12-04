@@ -21,6 +21,7 @@ def get_parser(n_planted=None, samples=10, optw=0):
     parser.add_argument(
         "--neu", type=int, default=n_planted, help="number of planted neurons"
     )
+    parser.add_argument("--plot", action="store_true", help="draw plots")
 
     parser.add_argument("--optw", type=int, default=optw, help="choice of w")
     # 0: randomly generated (Gaussian)
