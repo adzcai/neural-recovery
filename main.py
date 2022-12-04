@@ -94,16 +94,15 @@ def main():
     records = defaultdict(lambda: np.zeros((len(nvec), len(dvec), args.sample)))
     times = np.zeros(len(nvec))
 
-    for nidx, n in tqdm(enumerate(nvec), position=0, leave=True):
-        print("n = " + str(n))
+    for nidx, n in tqdm(enumerate(nvec), position=0, total=len(nvec), leave=True):
         t0 = time()
-        for didx, d in tqdm(enumerate(dvec), position=1, leave=False):
+        for didx, d in tqdm(enumerate(dvec), position=1, total=len(dvec), leave=False):
             if args.model == "normalize" and n < d:
                 for prop in record_properties:
                     records[prop][nidx, didx, :] = None
                 continue
 
-            for i in tqdm(range(args.sample), position=2, leave=False):
+            for i in range(args.sample):
                 if args.model == "skip":
                     if args.form == "convex":
                         data = solve_cvx_skip(n, d, args)
