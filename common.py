@@ -7,18 +7,17 @@ import scipy.optimize as sciopt
 
 def get_parser(neu=None, default_samples=10, optw=0):
     parser = argparse.ArgumentParser(description="phase transition")
+    parser.add_argument(
+        "--convex",
+        type=argparse.BooleanOptionalAction,
+        default=False,
+        help="whether to formulate optimization as convex program or nonconvex (neural network training) problem",
+    )
     parser.add_argument("--n", type=int, default=400, help="number of sample")
     parser.add_argument("--d", type=int, default=100, help="number of dimension")
     parser.add_argument("--seed", type=int, default=97006855, help="random seed")
     parser.add_argument(
         "--sample", type=int, default=default_samples, help="number of trials"
-    )
-    parser.add_argument(
-        "--model",
-        type=int,
-        choices=[0, 1],
-        default=0,
-        help="underlying model. 0=linear, 1=relu network",
     )
     parser.add_argument(
         "--neu", type=int, default=neu, help="number of planted neurons"
@@ -60,6 +59,10 @@ def get_parser(neu=None, default_samples=10, optw=0):
         "--beta", type=float, default=1e-6, help="weight decay parameter"
     )
     parser.add_argument("--lr", type=float, default=2e-3, help="learning rate")
+
+    subparsers = parser.add_subparsers(required=True, dest="model", description="learned model for recovery")
+    for model in ("ReLU", "ReLU_skip", "ReLU_normal"):
+        subparsers.add_parser(model)
 
     return parser
 
