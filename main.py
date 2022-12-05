@@ -11,7 +11,7 @@ from solve_problem import solve_problem
 from utils import check_irregular
 
 def get_args():
-    parser = get_parser(k=None, optw=None)
+    parser = get_parser()
     args = parser.parse_args()
     if args.model == "normalize":
         if args.optw is None:
@@ -24,6 +24,9 @@ def get_args():
     elif args.model == "skip":
         if args.optw is None:
             args.optw = 1
+    elif args.model == "plain":
+        if args.optw is None:
+            args.optw = 0
     else:
         raise NotImplementedError("Invalid model type.")
     
@@ -34,7 +37,7 @@ def main():
     Three different kinds of models:
     - ReLU, ReLU-normalize, ReLU-skip.
     Each one can be phrased in different "form"s:
-    - nonconvex neural network training, convex program, relazed min-norm program.
+    - nonconvex neural network training (gradient descent), convex program, relazed min-norm program.
     """
     args = get_args()
     print(str(args))
@@ -62,7 +65,7 @@ def main():
                 continue
 
             for i in range(args.sample):
-                if args.form == "nonconvex":
+                if args.form == "gd":
                     data = train_model(n, d, args)
                 elif args.form == "irregular":
                     prob = check_irregular(n, d, args)

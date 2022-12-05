@@ -5,7 +5,7 @@ import numpy as np
 
 def cvx_relu(X, y, dmat, beta, skip=False):
     """
-    Convex formulation of skip network.
+    Convex formulation of either plain relu network or a network with skip connection when skip is True..
     When skip == True, this is equation 211 of the paper,
     which is an approximation of Equation 6 of the paper.
     When skip == False, this is that equation but without the skip connection.
@@ -29,11 +29,11 @@ def cvx_relu(X, y, dmat, beta, skip=False):
 
     # objective
     obj_term = y_pos - y_neg - y
+    regw = cp.mixed_norm(W_pos.T, 2, 1) + cp.mixed_norm(W_neg.T, 2, 1)
     if skip:
         obj_term += X @ W0
-    loss = cp.norm(obj_term, 2) ** 2
-    regw = cp.norm(W0, 2) + cp.mixed_norm(W_pos.T, 2, 1) + cp.mixed_norm(W_neg.T, 2, 1)
-    obj = loss + beta * regw
+        regw += cp.norm(W0, 2)
+    obj = cp.norm(obj_term, 2) ** 2 + beta * regw
 
     prob = cp.Problem(cp.Minimize(obj), constraints)
     if skip:

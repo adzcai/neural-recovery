@@ -5,7 +5,6 @@ import torch
 
 from networks import ReLUnormal, ReLUskip
 from common import (
-    default_planted_model,
     generate_X,
     generate_data,
     generate_y,
@@ -23,9 +22,7 @@ def train_model(n, d, args):
 
     # test data
     Xtest = generate_X(n, d, args)
-    ytest = generate_y(
-        args, X, w, sigma=sigma, eps=0, model=default_planted_model(args)
-    )
+    ytest = generate_y(args, X, w, sigma=sigma, eps=0, model=args.planted)
 
     data["X_test"] = Xtest
     data["y_test"] = ytest

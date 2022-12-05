@@ -5,9 +5,12 @@ from common import generate_X, generate_data
 
 
 def get_metrics(program_args, *args, **kwargs):
-    model, form = program_args.model, program_args.form
+    model, form, planted = program_args.model, program_args.form, program_args.planted
     if model == "plain":
-        return get_metrics_skip(program_args, *args, **kwargs)
+        if planted == "relu_plain":
+            return get_metrics_relu_plain_approx(program_args, *args, **kwargs)
+        else:
+            return get_metrics_skip(program_args, *args, **kwargs)
     if model == "normalize":
         return get_metrics_normalize(program_args, *args, **kwargs)
     elif model == "skip":
@@ -82,14 +85,13 @@ def get_metrics_skip(
     Planted: Linear
     Learned: ReLU+skip
     Formulation: approx formulation (no recovery condition yet)
+    - either W_pos is (d, p) for the relaxed formulation,
+    - or W_pos and W_neg are both (d, p) for the approximate formulation
 
     For underlying linear weights w,
     we define "recovery" as the following:
     the learned weights w_skip are close to w,
     and all of the learned weights (for the relu) W are close to 0.
-
-    This either accepts a single W_pos for the relaxed convex formulation,
-    or a W_pos and W_neg for the exact or approximate formulation.
     """
     n, d = X.shape
 
@@ -120,7 +122,7 @@ def get_metrics_skip(
     }
 
 
-def get_metrics_relu_plain_approx(args, X, _dmat, _ind, W, W_pos, W_neg):
+def get_metrics_relu_plain_approx(args, X, _dmat, _ind, W_true, W_pos, W_neg=None):
     # Currently a special case of Proposition 4 (all r are 1)
     # Relu planted model, plain relu learned, approx formulation
 
@@ -128,12 +130,33 @@ def get_metrics_relu_plain_approx(args, X, _dmat, _ind, W, W_pos, W_neg):
     # W_pos is (d, p)
     # W_neg is (d, p)
 
+    n, d = X.shape
+
+    # print("W_true", W_true.shape, "W_pos", W_pos.shape)
+    dis_abs = 0  # np.linalg.norm(W_true - W_pos)  # recovery error of linear weights
+
+    # generate test data and calculate total test accuracy (MSE)
+    X_test = generate_X(n, d, args.optx)
+    if W_neg is not None:
+        pos = np.maximum(0, X_test @ W_pos)  # relu
+        neg = np.maximum(0, X_test @ W_neg)  # relu
+        outputs = pos - neg
+    else:
+        outputs = np.maximum(0, X_test @ W_pos)
+
+    y_predict = np.sum(outputs, axis=1)
+    y_true = np.sum(np.maximum(0, X_test @ W_true), axis=1)
+    test_err = np.linalg.norm(y_predict - y_true)
+
     recovery = True
-    for neuron in W.T:
-        recovery = recovery and np.any([np.allclose(neuron/np.linalg.norm(neuron), w_pos) for w_pos in W_pos.T])
+    for neuron in W_true.T:
+        recovery = recovery and np.any(
+            [np.allclose(neuron / np.linalg.norm(neuron), w_pos) for w_pos in W_pos.T]
+        )
         # recovery = recovery and np.any([np.allclose(0, w_neg) for w_neg in W_neg.T])
 
     return {
+        "dis_abs": dis_abs,
+        "test_err": test_err,
         "recovery": recovery,
     }
-    

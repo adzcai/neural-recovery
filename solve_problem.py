@@ -5,6 +5,7 @@ from cvx_problems import (
     cvx_relu_normalize,
     cvx_relu_normalize_relax,
     cvx_relu,
+    cvx_relu_skip_relax,
 )
 from metrics import get_metrics
 
@@ -19,17 +20,17 @@ def solve_problem(n, d, args):
     )
 
     if args.model == "plain":
-        if args.form == "convex":
-            prob, variables = cvx_relu(dmat, y, args, args.beta, skip=False)
+        if args.form == "approx":
+            prob, variables = cvx_relu(X, y, dmat, args.beta, skip=False)
         else:
-            prob = cvx_relu_skip_relax(dmat, y, args)
+            prob = cvx_relu_skip_relax(X, y, dmat, args.beta)
     elif args.model == "skip":
-        if args.form == "convex":
+        if args.form == "approx":
             prob, variables = cvx_relu(X, y, dmat, args.beta, skip=True)
         elif args.form == "relaxed":
             prob, variables = cvx_relu_skip_relax(X, y, dmat, args.beta)
     elif args.model == "normalize":
-        if args.form == "convex":
+        if args.form == "approx":
             prob, variables = cvx_relu_normalize(X, y, dmat, args.beta)
         elif args.form == "relaxed":
             prob, variables = cvx_relu_normalize_relax(X, y, dmat, args.beta)

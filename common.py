@@ -7,12 +7,6 @@ import numpy as np
 import scipy.optimize as sciopt
 
 
-ProblemSetting = namedtuple("", [
-    "planted_model",
-    "learned_model",
-    "formulation",
-])
-
 # problem settings for which recovery can be meaningfully defined.
 valid_settings = (
     # ("linear", "plain"),
@@ -29,23 +23,24 @@ valid_settings = (
 )
 
 
-def get_parser(k=None, samples=10, optw=0):
+def get_parser():
     parser = argparse.ArgumentParser(description="phase transition")
     parser.add_argument(
         "--form",
         type=str,
-        default="convex",
-        choices=["nonconvex", "convex", "relaxed"],
-        help="whether to formulate optimization as convex program, nonconvex (neural network training), or min norm (relaxed)",
+        default="approx",
+        choices=["gd", "approx", "relaxed"],
+        help="whether to formulate optimization as convex program, GD (neural network training), or min norm (relaxed)",
     )
     parser.add_argument("--n", type=int, default=400, help="number of sample")
     parser.add_argument("--d", type=int, default=100, help="number of dimension")
-    parser.add_argument("--k", type=int, default=k, help="number of planted neurons")
+    parser.add_argument("--k", type=int, default=None, help="number of planted neurons")
     parser.add_argument("--seed", type=int, default=97006855, help="random seed")
-    parser.add_argument("--sample", type=int, default=samples, help="number of trials")
+    parser.add_argument("--sample", type=int, default=5, help="number of trials")
     parser.add_argument("--plot", action="store_true", help="draw plots")
+    parser.add_argument("--planted", type=str, default="linear", choices=["linear", "relu_plain", "relu_norm"], help="planted model")
 
-    parser.add_argument("--optw", type=int, default=optw, help="choice of w")
+    parser.add_argument("--optw", type=int, default=None, help="choice of w")
     # 0: randomly generated (Gaussian)
     # 1: smallest right eigenvector of X
     # 2: randomly generated ReLU network
@@ -74,12 +69,8 @@ def get_parser(k=None, samples=10, optw=0):
     )
 
     # nonconvex training
-    parser.add_argument(
-        "--num_epoch", type=int, default=400, help="number of training epochs"
-    )
-    parser.add_argument(
-        "--beta", type=float, default=1e-6, help="weight decay parameter"
-    )
+    parser.add_argument("--num_epoch", type=int, default=400, help="number of training epochs")
+    parser.add_argument("--beta", type=float, default=1e-6, help="weight decay parameter")
     parser.add_argument("--lr", type=float, default=2e-3, help="learning rate")
 
     subparsers = parser.add_subparsers(
@@ -96,25 +87,25 @@ def get_record_properties(model: str, form: str):
     What properties to record for each model / form combination.
     """
     if model == "plain":
-        if form == "nonconvex":
+        if form == "gd":
             return ["dis_abs", "test_err"]
-        elif form == "convex":
-            return ["dis_abs", "test_err"]
+        elif form == "approx":
+            return ["dis_abs", "test_err", "recovery"]
         elif form == "relaxed":
             return ["dis_abs", "test_err"]
 
     if model == "skip":
-        if form == "nonconvex":
+        if form == "gd":
             return ["dis_abs", "test_err"]
-        elif form == "convex":
+        elif form == "approx":
             return ["dis_abs", "test_err"]
         elif form == "relaxed":
             return ["dis_abs", "test_err", "recovery"]
 
     if model == "normalize":
-        if form == "nonconvex":
+        if form == "gd":
             return ["test_err"]
-        elif form == "convex" or form == "relaxed":
+        elif form == "approx" or form == "relaxed":
             return ["dis_abs", "recovery"]
         elif form == "irregular":
             return ["prob"]
@@ -132,16 +123,7 @@ def get_fname(
     if sample is None:
         sample = args.sample
 
-    return "learned-{}/true-{}/form-{}/trial_n{}_d{}_w{}_X{}_sig{}_sample{}".format(
-        args.model,
-        args.form,
-        n,
-        d,
-        args.optw,
-        args.optx,
-        args.sigma,
-        sample,
-    )
+    return f"learned-{args.model}/planted-{args.planted}/form-{args.form}/trial__n-{n}__d-{d}__w-{args.optw}__X-{args.optx}__stdev-{args.sigma}__sample-{sample}"
 
 
 def get_save_folder(args):
@@ -212,9 +194,7 @@ def generate_data(
     w = generate_w(X, args.k, args.optw)
 
     try:
-        y = generate_y(
-            X, w, sigma=args.sigma, eps=eps, model=default_planted_model(args)
-        )
+        y = generate_y(X, w, sigma=args.sigma, eps=eps, model=args.planted)
     except ValueError:
         # if the generated y has a column of all 0s, generate again
         return generate_data(n, d, args, data=data, eps=eps)
@@ -281,15 +261,15 @@ def generate_y(X, w, sigma, eps=1e-10, model="linear"):
     Generate y from the data X and the weights w.
     :param model: the planted model
     """
-    if model == "relu-norm":
+    if model == "relu_norm":
         y = np.maximum(0, X @ w)  # relu
         norm_y = np.linalg.norm(y, axis=0)
         if np.any(norm_y < eps):
             # if any columns are zero, re-generate
             raise ValueError("Some columns of y are zero.")
         y = np.sum(y / norm_y, axis=1)
-    elif model == "relu-no-norm":
-        y = np.maximum(0, X @ w)  # relu
+    elif model == "relu_plain":
+        y = np.sum(np.maximum(0, X @ w), axis=1)  # relu
     elif model == "linear":
         y = X @ w
 
@@ -299,10 +279,6 @@ def generate_y(X, w, sigma, eps=1e-10, model="linear"):
         y += z
 
     return y
-
-
-def default_planted_model(args):
-    return "relu" if args.model == "normalize" else "linear"
 
 
 def plot_and_save(save_folder, records, record_properties, nvec, dvec):
