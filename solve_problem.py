@@ -1,4 +1,5 @@
 import cvxpy as cp
+import numpy as np
 
 from common import generate_data, get_arrangement_patterns
 from cvx_problems import (
@@ -9,6 +10,28 @@ from cvx_problems import (
 )
 from metrics import get_metrics
 
+def NIC(X, w, dmat):
+    dmat = np.array([np.diag(d) for d in dmat.T])
+    # print("shapes", X.shape, w.shape, y.shape, dmat.shape)
+    Dsi = np.array([np.diag(neuron) for neuron in ((X @ w) >= 0).T]) # (k, n, n)
+    assert dmat.shape[1] == Dsi.shape[1] and dmat.shape[2] == Dsi.shape[2]
+    S = []
+    for d in Dsi:
+        for i, other_d in enumerate(dmat):
+            if np.allclose(d, other_d):
+                S.append(i)
+                break
+
+    middle_prod = np.einsum("d n, k n m -> k d m", X.T, Dsi)
+    middle = np.concatenate(middle_prod, axis=0).T
+    w_hat = w / np.linalg.norm(w, axis=0)
+    right = np.concatenate(w_hat.T, axis=0)
+    NIC_holds = True
+    for i, d in enumerate(dmat):
+        if i not in S:
+            NIC_holds = NIC_holds and np.linalg.norm(X.T @ d @ middle @ right) < 1
+    return NIC_holds
+
 
 def solve_problem(n, d, args):
     data = {}
@@ -18,8 +41,9 @@ def solve_problem(n, d, args):
     dmat, ind, data["exist_all_one"] = get_arrangement_patterns(
         X, w if args.model == "normalize" else None, mh=mh
     )
-
+    
     if args.model == "plain":
+        data["NIC_holds"] = NIC(X, w, dmat)
         if args.form == "approx":
             prob, variables = cvx_relu(X, y, dmat, args.beta, skip=False)
         elif args.form == 'exact':
