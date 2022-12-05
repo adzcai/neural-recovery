@@ -67,7 +67,7 @@ def get_record_properties(planted: str, model: str):
             return ["test_err"]
 
     elif planted == "plain":
-        return ["dis_abs", "test_err", "recovery"]
+        return ["dis_abs", "test_err", "recovery", "NIC_holds"]
 
     elif planted == "relu_norm":
         if model == "normalize":

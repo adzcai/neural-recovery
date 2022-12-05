@@ -164,6 +164,11 @@ def get_metrics_plain_approx(args, X, _dmat, _ind, W_true, W_pos, W_neg=None):
         )
         # recovery = recovery and np.any([np.allclose(0, w_neg) for w_neg in W_neg.T])
 
+    # print the highest 10 norms of columns of W_pos
+    # print("w_true", W_true)
+    # print("y", y_true)
+    # print("W_pos norms", np.sort(np.linalg.norm(W_pos, axis=0))[-10:])
+
     return {
         "dis_abs": dis_abs,
         "test_err": test_err,
