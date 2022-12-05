@@ -7,22 +7,6 @@ import numpy as np
 import scipy.optimize as sciopt
 
 
-# problem settings for which recovery can be meaningfully defined.
-valid_settings = (
-    # ("linear", "plain"),
-    ("linear", "skip"),
-    # ("linear", "normalize"),
-
-    ("relu_plain", "plain"),
-    ("relu_plain", "skip"),
-    # ("relu_plain", "normalize"),
-
-    # ("relu_norm", "plain"),
-    # ("relu_norm", "skip"),
-    ("relu_norm", "normalize"),
-)
-
-
 def get_parser():
     parser = argparse.ArgumentParser(description="phase transition")
     parser.add_argument(
@@ -54,16 +38,10 @@ def get_parser():
     parser.add_argument("--sigma", type=float, default=0, help="noise")
     parser.add_argument(
         "--verbose",
-        type=bool,
-        default=False,
+        action="store_true",
         help="whether to print information while training",
     )
-    parser.add_argument(
-        "--save_details",
-        type=bool,
-        default=False,
-        help="whether to save training results",
-    )
+    parser.add_argument("--save_details", action="store_true", help="whether to save training results")
     parser.add_argument(
         "--save_folder", type=str, default="./results/", help="path to save results"
     )
@@ -82,35 +60,26 @@ def get_parser():
     return parser
 
 
-def get_record_properties(model: str, form: str):
+def get_record_properties(planted: str, model: str):
     """
     What properties to record for each model / form combination.
     """
-    if model == "plain":
-        if form == "gd":
-            return ["dis_abs", "test_err"]
-        elif form == "approx":
-            return ["dis_abs", "test_err", "recovery"]
-        elif form == "relaxed":
-            return ["dis_abs", "test_err"]
 
-    if model == "skip":
-        if form == "gd":
-            return ["dis_abs", "test_err"]
-        elif form == "approx":
-            return ["dis_abs", "test_err"]
-        elif form == "relaxed":
+    if planted == "linear":
+        if model == "skip":
             return ["dis_abs", "test_err", "recovery"]
-
-    if model == "normalize":
-        if form == "gd":
+        else:
             return ["test_err"]
-        elif form == "approx" or form == "relaxed":
-            return ["dis_abs", "recovery"]
-        elif form == "irregular":
-            return ["prob"]
 
-    raise NotImplementedError("Invalid model and form combination.")
+    elif planted == "relu_plain":
+        return ["dis_abs", "test_err", "recovery"]
+
+    elif planted == "relu_norm":
+        if model == "normalize":
+            return ["dis_abs", "test_err", "recovery"]
+        return ["test_err"]
+
+    raise NotImplementedError(f"Invalid planted and model combination {planted=} and {model=}.")
 
 
 def get_fname(

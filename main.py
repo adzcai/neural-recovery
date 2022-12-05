@@ -52,13 +52,20 @@ def main():
     if not os.path.exists(save_folder):
         os.makedirs(save_folder)
 
-    record_properties = get_record_properties(args.model, args.form)
+    record_properties = get_record_properties(args.planted, args.model)
+    print("Recording properties " + str(record_properties))
     records = defaultdict(lambda: np.zeros((len(nvec), len(dvec), args.sample)))
-    times = np.zeros(len(nvec))
+    runtimes = np.zeros(len(nvec))
 
-    for nidx, n in tqdm(enumerate(nvec), position=0, total=len(nvec), leave=True):
+    n_iter = enumerate(nvec)
+    if args.verbose:
+        n_iter = tqdm(n_iter, position=0, total=len(nvec), leave=True)
+    for nidx, n in n_iter:
         t0 = time()
-        for didx, d in tqdm(enumerate(dvec), position=1, total=len(dvec), leave=False):
+        d_iter = enumerate(dvec)
+        if args.verbose:
+            d_iter = tqdm(d_iter, position=1, total=len(dvec), leave=False)
+        for didx, d in d_iter:
             if args.model == "normalize" and n < d:
                 for prop in record_properties:
                     records[prop][nidx, didx, :] = None
@@ -80,9 +87,9 @@ def main():
                     with open(f"{save_folder}/n{n}_d{d}_sample{i}.pkl", "wb") as file:
                         pickle.dump(data, file)
         t1 = time()
-        times[nidx] = t1 - t0
+        runtimes[nidx] = t1 - t0
 
-    print("done experiment. times = " + str(times.round(2)))
+    print("done experiment. times = " + str(runtimes.round(2)))
     plot_and_save(save_folder, records, record_properties, nvec, dvec)
 
 

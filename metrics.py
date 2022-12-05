@@ -30,15 +30,21 @@ def get_metrics_normalize(
     atol=1e-4,
 ):
     """
+    Planted: ReLU
+    Learned: ReLU+normalize
+    Formulation: approx formulation:
+    - either W_pos is (d, p) for the relaxed formulation,
+    - or W_pos and W_neg are both (d, p) for the approximate formulation
+
     Get metrics for the normalized ReLU model.
     Intuitively, measures the distance to the planted neurons' weights.
     Mathematically, we express the jth planted neuron in terms of the singular values of Dj @ X,
     where Dj is the corresponding diagonal arrangement pattern,
     and then compare the learned neurons with this expression.
 
-    :param w: the planted weights
-    :param w1: the learned (positive) weights
-    :param w2: the learned negative weights
+    :param w: (d, p) planted weights of the ReLU
+    :param w_pos: (n, p) the learned (positive) weights
+    :param w_pos: (n, p) the learned negative weights
     :param tol: the tolerance to use for checking if a learned neuron matches the grounded truth.
     """
     p = w.shape[1]
@@ -56,13 +62,14 @@ def get_metrics_normalize(
         # TODO is this always included in the new dmat though? why does this need to be included?
         k = np.nonzero(ind == j)[0][0]
         i_map[j] = k
-        wj = w[:, j]
+        wj = w[:, j]  # (d,)
         dj = dmat[:, k]
-        Xj = dj.reshape((n, 1)) * X
-        _Uj, Sj, Vjh = np.linalg.svd(Xj, full_matrices=False)
+
+        _Uj, Sj, Vjh = np.linalg.svd(dj.reshape((n, 1)) * X, full_matrices=False)
         # scale the right singular vectors according to their singular values,
-        # then rephrase the jth planted neuron in this basis
-        wj = (Sj.reshape((d, 1)) * Vjh) @ wj
+        # then rephrase the jth planted neuron in this basis.
+        # Vjh is (d, d), Sj is (d,)
+        wj = (Sj.reshape((d, 1)) * Vjh) @ wj  # (d, 1)
         wj /= np.linalg.norm(wj)
 
         # get distance to this planted neuron
@@ -84,7 +91,7 @@ def get_metrics_skip(
     """
     Planted: Linear
     Learned: ReLU+skip
-    Formulation: approx formulation (no recovery condition yet)
+    Formulation: approx formulation:
     - either W_pos is (d, p) for the relaxed formulation,
     - or W_pos and W_neg are both (d, p) for the approximate formulation
 
