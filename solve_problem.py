@@ -10,7 +10,7 @@ from cvx_problems import (
 )
 from metrics import get_metrics
 
-def NIC(X, w, dmat):
+def NIC_plain_plain(X, w, dmat):
     dmat = np.array([np.diag(d) for d in dmat.T])
     # print("shapes", X.shape, w.shape, y.shape, dmat.shape)
     Dsi = np.array([np.diag(neuron) for neuron in ((X @ w) >= 0).T]) # (k, n, n)
@@ -31,6 +31,25 @@ def NIC(X, w, dmat):
         if i not in S:
             NIC_holds = NIC_holds and np.linalg.norm(X.T @ d @ middle @ right) < 1
     return NIC_holds
+
+
+def NIC_linear(X, w, dmat):
+    dmat = np.array([np.diag(d) for d in dmat.T])
+    NIC_holds = True
+    w_hat = w / np.linalg.norm(w, axis=0)
+    for d in dmat:
+        NIC_holds = NIC_holds and np.linalg.norm(X.T @ d @ X @ np.linalg.inv(X.T @ X) @ w_hat) < 1
+    return NIC_holds
+
+# def NIC_normalized(X, w, dmat):
+#     w = w.squeeze()
+#     di = (X @ w) >= 0
+#     dj = [np.diag(d) for d in dmat.T if not np.allclose(d, di)]
+#     di = np.diag(di)
+#     ui, sigi, vi = np.linalg.svd(di @ X)
+#     uj, _, _ = np.linalg.svd(dj @ X)
+#     w_hat = (np.diag(sigi) @ vi @ w) / np.linalg.norm((np.diag(sigi) @ vi @ w), axis=0)
+#     np.einsum("p n m, n d, ")
 
 
 def solve_problem(n, d, args):
