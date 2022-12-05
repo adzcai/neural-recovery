@@ -7,8 +7,8 @@ from common import generate_X, generate_data
 def get_metrics(program_args, *args, **kwargs):
     model, form, planted = program_args.model, program_args.form, program_args.planted
     if model == "plain":
-        if planted == "relu_plain":
-            return get_metrics_relu_plain_approx(program_args, *args, **kwargs)
+        if planted == "plain":
+            return get_metrics_plain_approx(program_args, *args, **kwargs)
         else:
             return get_metrics_skip(program_args, *args, **kwargs)
     if model == "normalize":
@@ -129,7 +129,7 @@ def get_metrics_skip(
     }
 
 
-def get_metrics_relu_plain_approx(args, X, _dmat, _ind, W_true, W_pos, W_neg=None):
+def get_metrics_plain_approx(args, X, _dmat, _ind, W_true, W_pos, W_neg=None):
     # Currently a special case of Proposition 4 (all r are 1)
     # Relu planted model, plain relu learned, approx formulation
 
@@ -141,10 +141,6 @@ def get_metrics_relu_plain_approx(args, X, _dmat, _ind, W_true, W_pos, W_neg=Non
     
 
     n, d = X.shape
-
-    if n > 90:
-        print(f"p is {W_pos.shape[1]}, k is {W_true.shape[1]}")
-        print(np.sort(np.linalg.norm(W_pos, axis=0))[-5:])
 
     # print("W_true", W_true.shape, "W_pos", W_pos.shape)
     dis_abs = 0  # np.linalg.norm(W_true - W_pos)  # recovery error of linear weights

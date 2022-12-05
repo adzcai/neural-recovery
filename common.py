@@ -13,7 +13,7 @@ def get_parser():
         "--form",
         type=str,
         default="approx",
-        choices=["gd", "approx", "relaxed"],
+        choices=["gd", "exact", "approx", "relaxed"],
         help="whether to formulate optimization as convex program, GD (neural network training), or min norm (relaxed)",
     )
     parser.add_argument("--n", type=int, default=400, help="number of sample")
@@ -22,7 +22,7 @@ def get_parser():
     parser.add_argument("--seed", type=int, default=97006855, help="random seed")
     parser.add_argument("--sample", type=int, default=5, help="number of trials")
     parser.add_argument("--plot", action="store_true", help="draw plots")
-    parser.add_argument("--planted", type=str, default="linear", choices=["linear", "relu_plain", "relu_norm"], help="planted model")
+    parser.add_argument("--planted", type=str, default="linear", choices=["linear", "plain", "relu_norm"], help="planted model")
 
     parser.add_argument("--optw", type=int, default=None, help="choice of w")
     # 0: randomly generated (Gaussian)
@@ -45,17 +45,12 @@ def get_parser():
     parser.add_argument(
         "--save_folder", type=str, default="./results/", help="path to save results"
     )
+    parser.add_argument("--learned", dest="model", type=str, default="plain", choices=["plain", "skip", "normalize"], help="learned model for recovery")
 
     # nonconvex training
     parser.add_argument("--num_epoch", type=int, default=400, help="number of training epochs")
     parser.add_argument("--beta", type=float, default=1e-6, help="weight decay parameter")
     parser.add_argument("--lr", type=float, default=2e-3, help="learning rate")
-
-    subparsers = parser.add_subparsers(
-        required=True, dest="model", description="learned model for recovery"
-    )
-    for model in ("plain", "skip", "normalize"):
-        subparsers.add_parser(model)
 
     return parser
 
@@ -71,7 +66,7 @@ def get_record_properties(planted: str, model: str):
         else:
             return ["test_err"]
 
-    elif planted == "relu_plain":
+    elif planted == "plain":
         return ["dis_abs", "test_err", "recovery"]
 
     elif planted == "relu_norm":
@@ -237,7 +232,8 @@ def generate_y(X, w, sigma, eps=1e-10, model="linear"):
             # if any columns are zero, re-generate
             raise ValueError("Some columns of y are zero.")
         y = np.sum(y / norm_y, axis=1)
-    elif model == "relu_plain":
+    elif model == "plain":
+        # assert False, str(w)
         y = np.sum(np.maximum(0, X @ w), axis=1)  # relu
     elif model == "linear":
         y = X @ w

@@ -3,7 +3,7 @@ import cvxpy as cp
 import numpy as np
 
 
-def cvx_relu(X, y, dmat, beta, skip=False):
+def cvx_relu(X, y, dmat, beta, skip=False, exact=False):
     """
     Convex formulation of either plain relu network or a network with skip connection when skip is True..
     When skip == True, this is equation 211 of the paper,
@@ -27,17 +27,21 @@ def cvx_relu(X, y, dmat, beta, skip=False):
         cp.multiply(signed_patterns, (X @ W_neg)) >= 0,
     ]
 
-    # objective
-    obj_term = y_pos - y_neg - y
-    regw = cp.mixed_norm(W_pos.T, 2, 1) + cp.mixed_norm(W_neg.T, 2, 1)
+    # if not exact and skip, this is 211
+    # if not exact and not skip, this is modified 211
+    # if exact and skip, this is 6, with the w_0 norm added (we think this was a typo)
+    # if exact and not skip, this is 11
+    y_hat = y_pos - y_neg
+    norm = cp.mixed_norm(W_pos.T, 2, 1) + cp.mixed_norm(W_neg.T, 2, 1)
     if skip:
-        obj_term += X @ W0
-        regw += cp.norm(W0, 2)
-    obj = cp.norm(obj_term, 2) ** 2 + beta * regw
-
-    # exact, plain relu formulation
-    # constraints += [y_pos - y_neg - y == 0]
-    # obj = cp.mixed_norm(W_pos.T, 2, 1) + cp.mixed_norm(W_neg.T, 2, 1)
+        y_hat += X @ W0
+        norm += cp.norm(W0, 2)
+    
+    if exact:
+        constraints += [y_hat == y]
+        obj = norm
+    else:
+        obj = cp.norm(y_hat - y, 2) ** 2 + beta * norm
 
     prob = cp.Problem(cp.Minimize(obj), constraints)
 
@@ -45,7 +49,6 @@ def cvx_relu(X, y, dmat, beta, skip=False):
         return prob, OrderedDict(W0=W0, W1=W_pos, W2=W_neg)
     else:
         return prob, OrderedDict(W1=W_pos, W2=W_neg)
-
 
 
 def cvx_relu_skip_relax(X, y, dmat, beta):

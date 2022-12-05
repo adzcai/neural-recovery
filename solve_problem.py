@@ -22,13 +22,19 @@ def solve_problem(n, d, args):
     if args.model == "plain":
         if args.form == "approx":
             prob, variables = cvx_relu(X, y, dmat, args.beta, skip=False)
-        else:
-            prob = cvx_relu_skip_relax(X, y, dmat, args.beta)
+        elif args.form == 'exact':
+            prob, variables = cvx_relu(X, y, dmat, args.beta, skip=False, exact=True)
+        # else:
+        #     prob, variables = cvx_relu_skip_relax(X, y, dmat, args.beta)
     elif args.model == "skip":
         if args.form == "approx":
             prob, variables = cvx_relu(X, y, dmat, args.beta, skip=True)
+        elif args.form == "exact":
+            prob, variables = cvx_relu(X, y, dmat, args.beta, skip=True, exact=True)    
         elif args.form == "relaxed":
             prob, variables = cvx_relu_skip_relax(X, y, dmat, args.beta)
+        else:
+            assert False
     elif args.model == "normalize":
         if args.form == "approx":
             prob, variables = cvx_relu_normalize(X, y, dmat, args.beta)
