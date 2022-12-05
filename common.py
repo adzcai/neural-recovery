@@ -222,13 +222,15 @@ def generate_y(X, w, sigma, eps=1e-10, model="linear"):
     generate y
     :param model: the planted model
     """
-    if model == "relu":
+    if model == "relu-norm":
         y = np.maximum(0, X @ w)  # relu
         norm_y = np.linalg.norm(y, axis=0)
         if np.any(norm_y < eps):
             # if any columns are zero, re-generate
             raise ValueError("Some columns of y are zero.")
         y = np.sum(y / norm_y, axis=1)
+    elif model == "relu-no-norm":
+        y = np.maximum(0, X @ w)  # relu
     elif model == "linear":
         y = X @ w
 

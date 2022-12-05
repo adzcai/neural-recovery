@@ -77,6 +77,7 @@ def get_metrics_normalize(
 
 
 def get_metrics_skip(args, X, _dmat, _ind, w, w_skip, W_pos, W_neg):
+    # Linear planted, skip relu learned, approx formulation (no recovery condition yet)
     n, d = X.shape
     dis_abs = np.linalg.norm(w - w_skip)  # recovery error of linear weights
 
@@ -91,6 +92,26 @@ def get_metrics_skip(args, X, _dmat, _ind, w, w_skip, W_pos, W_neg):
         "dis_abs": dis_abs,
         "test_err": test_err,
     }
+
+
+def get_metrics_relu_plain_approx(args, X, _dmat, _ind, W, W_pos, W_neg):
+    # Currently a special case of Proposition 4 (all r are 1)
+    # Relu planted model, plain relu learned, approx formulation
+
+    # W is (d, k)
+    # W_pos is (d, p)
+    # W_neg is (d, p)
+
+    recovery = True
+    for neuron in W.T:
+        recovery = recovery and np.any([np.allclose(neuron/np.linalg.norm(neuron), w_pos) for w_pos in W_pos.T])
+        # recovery = recovery and np.any([np.allclose(0, w_neg) for w_neg in W_neg.T])
+
+    return {
+        "recovery": recovery,
+    }
+    
+
 
 
 def get_loss_skip_relax(args, X, _dmat, _ind, w, w_skip, W, atol=1e-4):
