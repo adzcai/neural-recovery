@@ -7,6 +7,16 @@ import torch.nn.functional as F
 class ReLUnormal(nn.Module):
     """
     ReLU with normalization layer
+
+    In order:
+    - Linear layer (d, m)
+    - ReLU
+    - L2 Normalization layer (with learned scaling param alpha)
+    - Linear layer (m, 1)
+
+    m is number of neurons in the hidden layer
+    n is unused
+    d is dimension of the input
     """
 
     def __init__(self, m, n, d):
@@ -28,6 +38,20 @@ class ReLUnormal(nn.Module):
 
 
 class ReLUskip(nn.Module):
+    """
+    ReLU with skip connection and no normalization
+
+    In order:
+    - Concat of:
+        - Relu path: Linear layer (d, m), then ReLU
+        - Skip path: Linear layer (d, 1)
+    - Linear (alpha) layer (m + 1, 1)
+
+    m is number of neurons in the hidden layer
+    n is unused
+    d is dimension of the input
+    """
+
     def __init__(self, m, n, d):
         super(ReLUskip, self).__init__()
         self.m, self.n, self.d = m, n, d

@@ -1,7 +1,7 @@
 import numpy as np
 import os
 from time import time
-from common import get_parser, get_save_folder, plot_and_save
+from common import get_parser, get_record_properties, get_save_folder, plot_and_save
 import pickle
 from collections import defaultdict
 from tqdm import tqdm
@@ -10,26 +10,24 @@ from ncvx_network_train import train_model
 from solve_problem import solve_problem
 from utils import check_irregular
 
-
-def get_record_properties(model: str, form: str):
-    if model == "skip":
-        if form == "nonconvex":
-            return ["dis_abs", "test_err"]
-        elif form == "convex":
-            return ["dis_abs", "test_err"]
-        elif form == "minnorm":
-            return ["dis_abs", "test_err", "recovery"]
-
-    if model == "normalize":
-        if form == "nonconvex":
-            return ["test_err"]
-        elif form == "convex" or form == "minnorm":
-            return ["dis_abs", "recovery"]
-        elif form == "irregular":
-            return ["prob"]
-
-    raise NotImplementedError("Invalid model and form combination.")
-
+def get_args():
+    parser = get_parser(k=None, optw=None)
+    args = parser.parse_args()
+    if args.model == "normalize":
+        if args.optw is None:
+            args.optw = 0
+        if args.k is None:
+            if args.form == "relaxed":
+                args.k = 1
+            else:
+                args.k = 2
+    elif args.model == "skip":
+        if args.optw is None:
+            args.optw = 1
+    else:
+        raise NotImplementedError("Invalid model type.")
+    
+    return args
 
 def main():
     """
@@ -38,21 +36,7 @@ def main():
     Each one can be phrased in different "form"s:
     - nonconvex neural network training, convex program, relazed min-norm program.
     """
-    parser = get_parser(n_planted=None, optw=None)
-    args = parser.parse_args()
-    if args.model == "normalize":
-        if args.optw is None:
-            args.optw = 0
-        if args.neu is None:
-            if args.form == "minnorm":
-                args.neu = 1
-            else:
-                args.neu = 2
-    elif args.model == "skip":
-        if args.optw is None:
-            args.optw = 1
-    else:
-        raise NotImplementedError("Invalid model type.")
+    args = get_args()
     print(str(args))
 
     save_folder = get_save_folder(args)

@@ -1,4 +1,4 @@
-This repository implements the code for the paper [**Overparameterized ReLU Neural Networks Learn the Simplest Model: Neural Isometry and Phase Transitions**][https://arxiv.org/abs/2209.15265].
+This repository implements the code for the paper [**Overparameterized ReLU Neural Networks Learn the Simplest Model: Neural Isometry and Phase Transitions**](https://arxiv.org/abs/2209.15265).
 
 # Introduction
 
@@ -91,6 +91,10 @@ python ncvx_train_skip.py --n 400 --d 100 --sample 10 --sigma 0 --optw 0 --optx 
 
 - You can change `--save_details`, `--save_folder`, `--seed` accordingly. 
 - For ReLU networks with normalization layer, you can also set the number of planted neurons by changing `--neu`. Details about the supported types of planted neuron and data matrix can be found in the comments of the code.
+
+# Axes
+
+
 
 # Maintainers
 

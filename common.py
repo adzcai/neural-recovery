@@ -1,4 +1,5 @@
 import argparse
+from collections import namedtuple
 from typing import Optional
 import matplotlib.pyplot as plt
 import math
@@ -6,22 +7,42 @@ import numpy as np
 import scipy.optimize as sciopt
 
 
-def get_parser(n_planted=None, samples=10, optw=0):
+ProblemSetting = namedtuple("", [
+    "planted_model",
+    "learned_model",
+    "formulation",
+])
+
+# problem settings for which recovery can be meaningfully defined.
+valid_settings = (
+    # ("linear", "plain"),
+    ("linear", "skip"),
+    # ("linear", "normalize"),
+
+    ("relu_plain", "plain"),
+    ("relu_plain", "skip"),
+    # ("relu_plain", "normalize"),
+
+    # ("relu_norm", "plain"),
+    # ("relu_norm", "skip"),
+    ("relu_norm", "normalize"),
+)
+
+
+def get_parser(k=None, samples=10, optw=0):
     parser = argparse.ArgumentParser(description="phase transition")
     parser.add_argument(
         "--form",
         type=str,
         default="convex",
-        choices=["nonconvex", "convex", "minnorm"],
+        choices=["nonconvex", "convex", "relaxed"],
         help="whether to formulate optimization as convex program, nonconvex (neural network training), or min norm (relaxed)",
     )
     parser.add_argument("--n", type=int, default=400, help="number of sample")
     parser.add_argument("--d", type=int, default=100, help="number of dimension")
+    parser.add_argument("--k", type=int, default=k, help="number of planted neurons")
     parser.add_argument("--seed", type=int, default=97006855, help="random seed")
     parser.add_argument("--sample", type=int, default=samples, help="number of trials")
-    parser.add_argument(
-        "--neu", type=int, default=n_planted, help="number of planted neurons"
-    )
     parser.add_argument("--plot", action="store_true", help="draw plots")
 
     parser.add_argument("--optw", type=int, default=optw, help="choice of w")
@@ -64,10 +85,41 @@ def get_parser(n_planted=None, samples=10, optw=0):
     subparsers = parser.add_subparsers(
         required=True, dest="model", description="learned model for recovery"
     )
-    for model in ("basic", "skip", "normalize"):
+    for model in ("plain", "skip", "normalize"):
         subparsers.add_parser(model)
 
     return parser
+
+
+def get_record_properties(model: str, form: str):
+    """
+    What properties to record for each model / form combination.
+    """
+    if model == "plain":
+        if form == "nonconvex":
+            return ["dis_abs", "test_err"]
+        elif form == "convex":
+            return ["dis_abs", "test_err"]
+        elif form == "relaxed":
+            return ["dis_abs", "test_err"]
+
+    if model == "skip":
+        if form == "nonconvex":
+            return ["dis_abs", "test_err"]
+        elif form == "convex":
+            return ["dis_abs", "test_err"]
+        elif form == "relaxed":
+            return ["dis_abs", "test_err", "recovery"]
+
+    if model == "normalize":
+        if form == "nonconvex":
+            return ["test_err"]
+        elif form == "convex" or form == "relaxed":
+            return ["dis_abs", "recovery"]
+        elif form == "irregular":
+            return ["prob"]
+
+    raise NotImplementedError("Invalid model and form combination.")
 
 
 def get_fname(
@@ -80,9 +132,9 @@ def get_fname(
     if sample is None:
         sample = args.sample
 
-    return "{}_train_{}_n{}_d{}_w{}_X{}_sig{}_sample{}".format(
-        args.form,
+    return "learned-{}/true-{}/form-{}/trial_n{}_d{}_w{}_X{}_sig{}_sample{}".format(
         args.model,
+        args.form,
         n,
         d,
         args.optw,
@@ -157,7 +209,7 @@ def generate_data(
     """
 
     X = generate_X(n, d, args.optx)
-    w = generate_w(X, args.neu, args.optw)
+    w = generate_w(X, args.k, args.optw)
 
     try:
         y = generate_y(
@@ -188,16 +240,23 @@ def generate_X(n, d, optx):
     return X
 
 
-def generate_w(X, neu, optw):
+def generate_w(X, k, optw):
+    """
+    X is the (n x d) data matrix.
+    k is the (optional) number of planted neurons.
+    optw is the option for generating w.
+
+    :return: w (d x k), where k is the number of hidden neurons.
+    """
     d = X.shape[1]
-    if neu is not None:
+    if k is not None:
         # involving multiple planted neurons
         if optw == 0:
-            w = np.random.randn(d, neu)
+            w = np.random.randn(d, k)
         elif optw == 1:
-            w = np.eye(d, neu)
+            w = np.eye(d, k)
         elif optw == 2:
-            if neu == 2:
+            if k == 2:
                 w = np.random.randn(d, 1)
                 w = np.concatenate([w, -w], axis=1)
             else:
@@ -219,7 +278,7 @@ def generate_w(X, neu, optw):
 
 def generate_y(X, w, sigma, eps=1e-10, model="linear"):
     """
-    generate y
+    Generate y from the data X and the weights w.
     :param model: the planted model
     """
     if model == "relu-norm":
@@ -244,7 +303,6 @@ def generate_y(X, w, sigma, eps=1e-10, model="linear"):
 
 def default_planted_model(args):
     return "relu" if args.model == "normalize" else "linear"
-
 
 
 def plot_and_save(save_folder, records, record_properties, nvec, dvec):
