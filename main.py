@@ -47,7 +47,7 @@ def main():
     np.random.seed(seed)
     flag = args.save_details
     dvec = np.arange(10, args.d + 1, 10)
-    nvec = np.arange(10, args.n + 1, 10)
+    nvec = np.arange(200, args.n + 1, 10)
 
     if not os.path.exists(save_folder):
         os.makedirs(save_folder)

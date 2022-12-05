@@ -35,12 +35,17 @@ def cvx_relu(X, y, dmat, beta, skip=False):
         regw += cp.norm(W0, 2)
     obj = cp.norm(obj_term, 2) ** 2 + beta * regw
 
+    # exact, plain relu formulation
+    # constraints += [y_pos - y_neg - y == 0]
+    # obj = cp.mixed_norm(W_pos.T, 2, 1) + cp.mixed_norm(W_neg.T, 2, 1)
+
     prob = cp.Problem(cp.Minimize(obj), constraints)
 
     if skip:
         return prob, OrderedDict(W0=W0, W1=W_pos, W2=W_neg)
     else:
         return prob, OrderedDict(W1=W_pos, W2=W_neg)
+
 
 
 def cvx_relu_skip_relax(X, y, dmat, beta):

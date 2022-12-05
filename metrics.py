@@ -137,7 +137,14 @@ def get_metrics_relu_plain_approx(args, X, _dmat, _ind, W_true, W_pos, W_neg=Non
     # W_pos is (d, p)
     # W_neg is (d, p)
 
+    # print highest five norms of colums of W_pos
+    
+
     n, d = X.shape
+
+    if n > 90:
+        print(f"p is {W_pos.shape[1]}, k is {W_true.shape[1]}")
+        print(np.sort(np.linalg.norm(W_pos, axis=0))[-5:])
 
     # print("W_true", W_true.shape, "W_pos", W_pos.shape)
     dis_abs = 0  # np.linalg.norm(W_true - W_pos)  # recovery error of linear weights
