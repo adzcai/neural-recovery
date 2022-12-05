@@ -1,28 +1,28 @@
 from typing import Optional
 import numpy as np
 
-from common import generate_X
+from common import generate_X, idx_of_planted_in_patterns, mult_diag
 
 
-def get_metrics(program_args, *args, **kwargs):
+def get_metrics(program_args, *args):
     model, form, planted = program_args.model, program_args.form, program_args.planted
     if model == "plain":
         if planted == "plain":
-            return get_metrics_plain_approx(program_args, *args, **kwargs)
+            return get_metrics_plain_approx(program_args, *args)
         else:
-            return get_metrics_skip(program_args, *args, **kwargs)
-    if model == "normalize":
-        return get_metrics_normalize(program_args, *args, **kwargs)
+            return get_metrics_skip(program_args, *args)
+    if model == "normalized":
+        return get_metrics_normalized(program_args, *args)
     elif model == "skip":
-        return get_metrics_skip(program_args, *args, **kwargs)
+        return get_metrics_skip(program_args, *args)
     else:
         raise NotImplementedError("Unknown model: %s" % model)
 
 
-def get_metrics_normalize(
+def get_metrics_normalized(
     args,
     X: np.ndarray,
-    dmat: np.ndarray,
+    D_mat: np.ndarray,
     ind: np.ndarray,
     w: np.ndarray,
     w_pos: np.ndarray,
@@ -42,52 +42,34 @@ def get_metrics_normalize(
     where Dj is the corresponding diagonal arrangement pattern,
     and then compare the learned neurons with this expression.
 
-    :param w: (d, p) planted weights of the ReLU
+    :param w: (d, k) planted weights of the ReLU
     :param w_pos: (n, p) the learned (positive) weights
     :param w_pos: (n, p) the learned negative weights
     :param tol: the tolerance to use for checking if a learned neuron matches the grounded truth.
     """
     k = w.shape[1]
-    i_map = np.zeros(k)
 
-    n, d = X.shape
+    if w_neg is None:
+        w_neg = np.zeros_like(w_pos)
 
-    distances = np.copy(w_pos)
-    if w_neg is not None:
-        distances -= w_neg
-
-    for j in range(k):  # for each of the planted neurons
-        # get the smallest index idx such that ind[idx] = j
-        # and therefore dmat[:, idx] gives the jth vector in the _original_ dmat (before picking unique columns)
-        # TODO is this always included in the new dmat though? why does this need to be included?
-        idx = np.nonzero(ind == j)[0][0]
-        i_map[j] = idx
-        wj = w[:, j]  # (d,)
-        dj = dmat[:, idx]
-
-        _Uj, Sj, Vjh = np.linalg.svd(dj.reshape((n, 1)) * X, full_matrices=False)
-        # scale the right singular vectors according to their singular values,
-        # then rephrase the jth planted neuron in this basis.
-        # Vjh is (d, d), Sj is (d,)
-        wj = (Sj.reshape((d, 1)) * Vjh) @ wj  # (d, 1)
-        wj /= np.linalg.norm(wj)
-
-        # get distance to this planted neuron
-        distances[:, k] -= wj
-
-    dis_abs = np.linalg.norm(distances, ord="fro")
-    recovery = np.allclose(distances, 0, atol=atol)
+    s = idx_of_planted_in_patterns(ind, k)  # element of [p]^k. the indices of the planted neurons in D_mat
+    DX = mult_diag(D_mat[s], X)  # (k, n, d)
+    _U, S, Vh = np.linalg.svd(DX, full_matrices=False)  # (k, n, m), (k, m), (k, m, d) where m = min(n, d)
+    PC = S[:, :, None] * Vh  # (k, m, d). Scale the right singular vectors by the singular values.
+    w_rotated = np.einsum("kmd,dk->mk", PC, w)  # take elementwise product and transpose
+    w_rotated /= np.linalg.norm(w_rotated, axis=0)
+    diff = (w_pos - w_neg)[s] - w_rotated
+    dis_abs = np.linalg.norm(diff, ord="fro")
+    recovery = np.allclose(diff, 0, atol=atol)
 
     return {
-        "i_map": i_map,
+        "i_map": s,
         "dis_abs": dis_abs,
         "recovery": recovery,
     }
 
 
-def get_metrics_skip(
-    args, X, _dmat, _ind, w_true, w_skip, W_pos, W_neg=None, atol=1e-4
-):
+def get_metrics_skip(args, X, _dmat, _ind, w_true, w_skip, W_pos, W_neg=None, atol=1e-4):
     """
     Planted: Linear
     Learned: ReLU+skip
@@ -105,7 +87,7 @@ def get_metrics_skip(
     dis_abs = np.linalg.norm(w_true - w_skip)  # recovery error of linear weights
 
     # generate test data and calculate total test accuracy (MSE)
-    X_test = generate_X(n, d, args.optx)
+    X_test = generate_X(n, d, cubic=args.optx in [1, 3], whiten=args.optx in [2, 3])
     if W_neg is not None:
         pos = np.maximum(0, X_test @ W_pos)  # relu
         neg = np.maximum(0, X_test @ W_neg)  # relu
@@ -116,9 +98,7 @@ def get_metrics_skip(
     y_predict = np.sum(outputs, axis=1) + X_test @ w_skip
     test_err = np.linalg.norm(y_predict - X_test @ w_true)
 
-    recovery = np.allclose(w_skip, w_true, atol=atol) and np.allclose(
-        W_pos, 0, atol=atol
-    )
+    recovery = np.allclose(w_skip, w_true, atol=atol) and np.allclose(W_pos, 0, atol=atol)
     if W_neg is not None:
         recovery = recovery and np.allclose(W_neg, 0, atol=atol)
 
@@ -159,9 +139,7 @@ def get_metrics_plain_approx(args, X, _dmat, _ind, W_true, W_pos, W_neg=None):
 
     recovery = True
     for neuron in W_true.T:
-        recovery = recovery and np.any(
-            [np.allclose(neuron / np.linalg.norm(neuron), w_pos) for w_pos in W_pos.T]
-        )
+        recovery = recovery and np.any([np.allclose(neuron / np.linalg.norm(neuron), w_pos) for w_pos in W_pos.T])
         # recovery = recovery and np.any([np.allclose(0, w_neg) for w_neg in W_neg.T])
 
     # print the highest 10 norms of columns of W_pos

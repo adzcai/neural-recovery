@@ -1,7 +1,7 @@
 import numpy as np
 import os
 from time import time
-from common import get_parser, get_record_properties, get_save_folder, plot_and_save
+from common import get_parser, get_save_folder, plot_results, save_results
 import pickle
 from collections import defaultdict
 from tqdm import tqdm
@@ -10,10 +10,11 @@ from ncvx_network_train import train_model
 from solve_problem import solve_problem
 from utils import check_irregular
 
+
 def get_args():
     parser = get_parser()
     args = parser.parse_args()
-    if args.model == "normalize":
+    if args.model == "normalized":
         if args.optw is None:
             args.optw = 0
         if args.k is None:
@@ -29,8 +30,9 @@ def get_args():
             args.optw = 0
     else:
         raise NotImplementedError("Invalid model type.")
-    
+
     return args
+
 
 def main():
     """
@@ -43,18 +45,15 @@ def main():
     print(str(args))
 
     save_folder = get_save_folder(args)
-    seed = args.seed
-    np.random.seed(seed)
-    flag = args.save_details
-    dvec = np.arange(4, args.d + 1, 10)
-    nvec = np.arange(5, args.n + 1, 10)
+    np.random.seed(args.seed)
+    save_weights = args.save_details
+    dvec = np.arange(10, args.d + 1, 10)
+    nvec = np.arange(10, args.n + 1, 10)
 
     if not os.path.exists(save_folder):
         os.makedirs(save_folder)
 
-    record_properties = get_record_properties(args.planted, args.model)
-    print("Recording properties " + str(record_properties))
-    records = defaultdict(lambda: np.zeros((len(nvec), len(dvec), args.sample)))
+    records = defaultdict(lambda: np.empty((len(nvec), len(dvec), args.sample)))
     runtimes = np.zeros(len(nvec))
 
     n_iter = enumerate(nvec)
@@ -66,9 +65,7 @@ def main():
         if args.verbose:
             d_iter = tqdm(d_iter, position=1, total=len(dvec), leave=False)
         for didx, d in d_iter:
-            if args.model == "normalize" and n < d:
-                for prop in record_properties:
-                    records[prop][nidx, didx, :] = None
+            if args.model == "normalized" and n < d:
                 continue
 
             for i in range(args.sample):
@@ -80,18 +77,18 @@ def main():
                 else:
                     data = solve_problem(n, d, args)
 
-
-                for prop in record_properties:
+                for prop in records:
                     records[prop][nidx, didx, i] = data[prop]
 
-                if flag:
-                    with open(f"{save_folder}/n{n}_d{d}_sample{i}.pkl", "wb") as file:
+                if save_weights:
+                    with open(f"{save_folder}n{n}_d{d}_sample{i}.pkl", "wb") as file:
                         pickle.dump(data, file)
         t1 = time()
         runtimes[nidx] = t1 - t0
 
     print("done experiment. times = " + str(runtimes.round(2)))
-    plot_and_save(save_folder, records, record_properties, nvec, dvec)
+    save_results(save_folder, records)
+    plot_results(records, nvec, dvec, save_folder=save_folder)
 
 
 if __name__ == "__main__":

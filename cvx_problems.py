@@ -34,7 +34,7 @@ def cvx_relu(X, y, dmat, beta, skip=False, exact=False):
     if skip:
         y_hat += X @ W0
         norm += cp.norm(W0, 2)
-    
+
     if exact:
         constraints += [y_hat == y]
         obj = norm
@@ -72,7 +72,7 @@ def cvx_relu_relax(X, y, dmat, _beta, skip=False):
     return prob, OrderedDict(W0=W0, W=W)
 
 
-def cvx_relu_normalize(X, y, dmat, beta):
+def cvx_relu_normalized(X, y, D_mat, beta):
     """
     Implement the convex optimization problem in cvxpy.
     Equation 27 in the paper, minus the skip connection.
@@ -80,7 +80,7 @@ def cvx_relu_normalize(X, y, dmat, beta):
     """
 
     n, d = X.shape
-    p = dmat.shape[1]
+    p = D_mat.shape[1]
 
     W_pos = cp.Variable((d, p))
     W_neg = cp.Variable((d, p))
@@ -89,16 +89,14 @@ def cvx_relu_normalize(X, y, dmat, beta):
 
     constraints = []
     for i in range(p):
-        di = dmat[:, i].reshape((n, 1))
+        di = D_mat[:, i].reshape((n, 1))
         Xi = di * X
         Ui, S, Vh = np.linalg.svd(Xi, full_matrices=False)
         ri = np.linalg.matrix_rank(Xi)  # rank of Xi
         if ri == 0:
             constraints += [W_pos[:, i] == 0, W_neg[:, i] == 0]
         else:
-            y_hat += Ui[:, np.arange(ri)] @ (
-                W_pos[np.arange(ri), i] - W_neg[np.arange(ri), i]
-            )
+            y_hat += Ui[:, np.arange(ri)] @ (W_pos[np.arange(ri), i] - W_neg[np.arange(ri), i])
 
             X1 = X @ Vh[np.arange(ri), :].T @ np.diag(1 / S[np.arange(ri)])
             signed_pattern = (2 * di - 1) * X1
@@ -122,14 +120,14 @@ def cvx_relu_normalize(X, y, dmat, beta):
     return prob, OrderedDict(W_pos=W_pos, W_neg=W_neg)
 
 
-def cvx_relu_normalize_relax(X, y, dmat, _beta):
+def cvx_relu_normalized_relax(X, y, D_mat, _beta):
     """
     Implement Equation 17 in the paper.
     After dropping all inequality constraints in Equation 16 (the equivalent convex program for a normalized relu network),
     we're left with the group l1 norm minimization problem implemented below.
     """
     n, d = X.shape
-    p = dmat.shape[1]
+    p = D_mat.shape[1]
 
     W = cp.Variable((d, p))
     expr = cp.Variable(n)
@@ -137,7 +135,7 @@ def cvx_relu_normalize_relax(X, y, dmat, _beta):
     # constraints
     constraints = []
     for i in range(p):
-        Xi = dmat[:, i].reshape((n, 1)) * X
+        Xi = D_mat[:, i].reshape((n, 1)) * X
         Ui, _Si, _Vhi = np.linalg.svd(Xi, full_matrices=False)
         ri = np.linalg.matrix_rank(Xi)
         if ri == d:

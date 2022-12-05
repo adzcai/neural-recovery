@@ -65,7 +65,7 @@ def check_irregular(n, d, args):
     eps = 1e-10
     X = generate_X(n, d, args.optx)
     w = generate_w(X, args.k, args.optw)
-    dmat, ind, _i_map = get_arrangement_patterns(X, w, mh=max(n * 2, 50))
+    dmat, ind, _i_map = get_arrangement_patterns(X, w, n_sampled=max(n * 2, 50))
 
     j_array = np.nonzero(ind <= args.k - 1)[0]
     j_map = ind[j_array]

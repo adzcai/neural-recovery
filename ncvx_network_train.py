@@ -8,12 +8,11 @@ from common import (
     generate_X,
     generate_data,
     generate_y,
-    get_fname,
     get_save_folder,
 )
 
 
-def train_model(n, d, args):
+def train_model(n, d, sample, args):
     sigma = args.sigma
     data = {}  # empty dict
 
@@ -27,15 +26,13 @@ def train_model(n, d, args):
     data["X_test"] = Xtest
     data["y_test"] = ytest
 
-    Xtrain, ytrain, Xtest, ytest = [
-        torch.from_numpy(t).float() for t in (X, y, Xtest, ytest)
-    ]
+    Xtrain, ytrain, Xtest, ytest = [torch.from_numpy(t).float() for t in (X, y, Xtest, ytest)]
 
     m = n + 1
     if args.model == "normal":
-        model = ReLUnormal(m=m, n=n, d=d)
+        model = ReLUnormal(m=m, n=n, d=d, act=args.act)
     else:
-        model = ReLUskip(m=m, n=n, d=d)
+        model = ReLUskip(m=m, n=n, d=d, act=args.act)
     loss_train, loss_test = train_network(model, Xtrain, ytrain, Xtest, ytest, args)
 
     data["loss_train"] = loss_train
@@ -54,7 +51,7 @@ def train_model(n, d, args):
     if args.save_details:
         torch.save(
             model.state_dict(),
-            get_save_folder(args) + model.name() + get_fname(args, n, d),
+            get_save_folder(args) + f"weights__n{n}__d{d}__sample{sample}.pth",
         )
 
     return data
@@ -76,15 +73,9 @@ def train_network(model, Xtrain, ytrain, Xtest, ytest, args):
     loss_test = np.zeros(args.num_epoch)
 
     if args.verbose:
-        print(
-            "Epoch [{}/{}], Train error: {}, Test error: {}".format(
-                0, args.num_epoch, train_err_init, test_err_init
-            )
-        )
+        print("Epoch [{}/{}], Train error: {}, Test error: {}".format(0, args.num_epoch, train_err_init, test_err_init))
 
-    optimizer = torch.optim.AdamW(
-        model.parameters(), lr=args.learning_rate, weight_decay=args.beta
-    )
+    optimizer = torch.optim.AdamW(model.parameters(), lr=args.learning_rate, weight_decay=args.beta)
 
     for epoch in range(args.num_epoch):
         optimizer.zero_grad()

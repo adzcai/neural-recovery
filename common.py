@@ -1,5 +1,6 @@
 import argparse
 from collections import namedtuple
+import os
 from typing import Optional
 import matplotlib.pyplot as plt
 import math
@@ -9,6 +10,19 @@ import scipy.optimize as sciopt
 
 def get_parser():
     parser = argparse.ArgumentParser(description="phase transition")
+
+    # the involved models and optimization form
+    parser.add_argument(
+        "--planted", type=str, default="linear", choices=["linear", "plain", "normalized"], help="planted model"
+    )
+    parser.add_argument(
+        "--learned",
+        dest="model",
+        type=str,
+        default="skip",
+        choices=["plain", "skip", "normalized"],
+        help="learned model for recovery",
+    )
     parser.add_argument(
         "--form",
         type=str,
@@ -16,70 +30,52 @@ def get_parser():
         choices=["gd", "exact", "approx", "relaxed"],
         help="whether to formulate optimization as convex program, GD (neural network training), or min norm (relaxed)",
     )
+
+    # experiment parameters
     parser.add_argument("--n", type=int, default=400, help="number of sample")
     parser.add_argument("--d", type=int, default=100, help="number of dimension")
     parser.add_argument("--k", type=int, default=None, help="number of planted neurons")
-    parser.add_argument("--seed", type=int, default=97006855, help="random seed")
-    parser.add_argument("--sample", type=int, default=5, help="number of trials")
-    parser.add_argument("--plot", action="store_true", help="draw plots")
-    parser.add_argument("--planted", type=str, default="linear", choices=["linear", "plain", "relu_norm"], help="planted model")
-
-    parser.add_argument("--optw", type=int, default=None, help="choice of w")
-    # 0: randomly generated (Gaussian)
-    # 1: smallest right eigenvector of X
-    # 2: randomly generated ReLU network
-
-    parser.add_argument("--optx", type=int, default=0, help="choice of X")
-    # 0: Gaussian
-    # 1: cubic Gaussian
-    # 2: 0 + whitened
-    # 3: 1 + whitened
-
     parser.add_argument("--sigma", type=float, default=0, help="noise")
     parser.add_argument(
-        "--verbose",
-        action="store_true",
-        help="whether to print information while training",
+        "--optw",
+        type=int,
+        default=None,  # depends on the planted model for theoretical analysis
+        choices=[0, 1],
+        help="choice of w. 0=Gaussian, 1=smallest PC of X",
     )
-    parser.add_argument("--save_details", action="store_true", help="whether to save training results")
     parser.add_argument(
-        "--save_folder", type=str, default="./results/", help="path to save results"
+        "--optx",
+        type=int,
+        default=0,
+        choices=[0, 1, 2, 3],
+        help="choice of X. 0=Gaussian, 1=Gaussian cubed, 2=whitened Gaussian, 3=whitened Gaussian cubed",
     )
-    parser.add_argument("--learned", dest="model", type=str, default="plain", choices=["plain", "skip", "normalize"], help="learned model for recovery")
+
+    parser.add_argument("--seed", type=int, default=97006855, help="random seed")
+    parser.add_argument("--sample", type=int, default=5, help="number of trials")
+
+    # plotting and meta level
+    parser.add_argument("--no_plot", action="store_true", help="avoid drawing plots")
+    parser.add_argument("--verbose", action="store_true", help="whether to print information while training")
+    parser.add_argument("--save_details", action="store_true", help="whether to save training results")
+    parser.add_argument("--save_folder", type=str, default="./results/", help="path to save results")
 
     # nonconvex training
     parser.add_argument("--num_epoch", type=int, default=400, help="number of training epochs")
     parser.add_argument("--beta", type=float, default=1e-6, help="weight decay parameter")
     parser.add_argument("--lr", type=float, default=2e-3, help="learning rate")
+    parser.add_argument(
+        "--activation",
+        type=str,
+        default="relu",
+        choices=["relu", "sigmoid", "tanh", "gelu"],
+        help="activation function",
+    )
 
     return parser
 
 
-def get_record_properties(planted: str, model: str):
-    """
-    What properties to record for each model / form combination.
-    """
-
-    if planted == "linear":
-        if model == "skip":
-            return ["dis_abs", "test_err", "recovery"]
-        else:
-            return ["test_err"]
-
-    elif planted == "plain":
-        return ["dis_abs", "test_err", "recovery", "NIC_holds"]
-
-    elif planted == "relu_norm":
-        if model == "normalize":
-            return ["dis_abs", "test_err", "recovery"]
-        return ["test_err"]
-
-    raise NotImplementedError(f"Invalid planted and model combination {planted=} and {model=}.")
-
-
-def get_fname(
-    args, n: Optional[int] = None, d: Optional[int] = None, sample: Optional[int] = None
-):
+def get_save_folder(args, n: int = None, d: int = None, sample: int = None):
     if n is None:
         n = args.n
     if d is None:
@@ -87,11 +83,7 @@ def get_fname(
     if sample is None:
         sample = args.sample
 
-    return f"learned-{args.model}/planted-{args.planted}/form-{args.form}/trial__n-{n}__d-{d}__w-{args.optw}__X-{args.optx}__stdev-{args.sigma}__sample-{sample}"
-
-
-def get_save_folder(args):
-    return args.save_folder + get_fname(args)
+    return f"{args.save_folder}learned_{args.model}/planted_{args.planted}/form_{args.form}/trial__n{n}__d{d}__w{args.optw}__X{args.optx}__stdev{args.sigma}__sample{sample}/"
 
 
 def check_degenerate_arr_pattern(X):
@@ -113,39 +105,12 @@ def check_degenerate_arr_pattern(X):
         return True  # exist all-one arrangement
 
 
-def get_arrangement_patterns(X, w=None, mh: Optional[int] = None):
-    """
-    Get all possible arrangement patterns of X.
-    That is, consider the set of hyperplanes passing through the origin with normal vector h.
-    An "arrangement pattern" assigns 1 to all samples on the positive side of the hyperplane
-    and 0 to all samples on the negative side.
-    :return:
-    - a (n x p) matrix of the arrangement patterns
-    - the indices in the original randomly generated h
-    - see `check_feasible`
-    """
-    n, d = X.shape
-    if mh is None:
-        mh = max(n, 50)
-    U1 = np.random.randn(d, mh)
-    if w is not None:
-        U1 = np.concatenate([w, U1], axis=1)
-    arr_patterns = X @ U1 >= 0
-    arr_patterns, ind = np.unique(arr_patterns, axis=1, return_index=True)  # remove duplicates. define p to be the number of unique patterns
-    exists_all_ones = check_degenerate_arr_pattern(X)
-    if exists_all_ones:
-        arr_patterns = np.concatenate([arr_patterns, np.ones((n, 1))], axis=1)
-    return arr_patterns, ind, exists_all_ones
-
-
-def generate_data(
-    n: int, d: int, args, data: Optional[dict] = None, eps: Optional[float] = 1e-10
-):
+def generate_data(n: int, d: int, args, data: Optional[dict] = None, eps: Optional[float] = 1e-10):
     """
     Generate X (n x d), w (d x m), and y (n),
     where m is the number of hidden neurons,
     such that:
-    - if model == "normalize", y[i] = sum_j ( relu( X[i] @ w[:, j] ) ).
+    - if model == "normalized", y[i] = sum_j ( relu( X[i] @ w[:, j] ) ).
     - if model == "skip", y = X @ w.
     Enforce that no column of y is all 0s.
 
@@ -154,7 +119,7 @@ def generate_data(
     :param only_X: if True, only generate X (used for generating test data for neural network training)
     """
 
-    X = generate_X(n, d, args.optx)
+    X = generate_X(n, d, cubic=args.optx in [1, 3], whiten=args.optx in [2, 3])
     w = generate_w(X, args.k, args.optw)
 
     try:
@@ -171,11 +136,15 @@ def generate_data(
     return X, w, y
 
 
-def generate_X(n, d, optx):
+def generate_X(n, d, cubic=False, whiten=False):
+    """
+    Generate an (n, d) design matrix X.
+    See `get_parser` for the options for optx.
+    """
     X = np.random.randn(n, d) / math.sqrt(n)
-    if optx in [1, 3]:
+    if cubic:
         X = X**3
-    if optx in [2, 4]:
+    if whiten:
         U, _S, Vh = np.linalg.svd(X, full_matrices=False)
         if n < d:
             X = Vh
@@ -225,7 +194,7 @@ def generate_y(X, w, sigma, eps=1e-10, model="linear"):
     Generate y from the data X and the weights w.
     :param model: the planted model
     """
-    if model == "relu_norm":
+    if model == "normalized":
         y = np.maximum(0, X @ w)  # relu
         norm_y = np.linalg.norm(y, axis=0)
         if np.any(norm_y < eps):
@@ -246,21 +215,85 @@ def generate_y(X, w, sigma, eps=1e-10, model="linear"):
     return y
 
 
-def plot_and_save(save_folder, records, record_properties, nvec, dvec):
-    xgrid, ygrid = np.meshgrid(nvec, dvec)
-    fig, ax = plt.subplots(
-        1, len(record_properties), figsize=(5 * len(record_properties), 5)
-    )
-    for i, prop in enumerate(record_properties):
-        save_path = save_folder + "/" + prop
-        np.save(save_path, records[prop])
+def get_arrangement_patterns(X, w=None, n_sampled: Optional[int] = None):
+    """
+    Get "all" possible arrangement patterns of X.
+    That is, consider a hyperplane passing through the origin.
+    The corresponding "arrangement pattern" assigns 1 to all samples (of X) on the positive side of the hyperplane
+    and 0 to all samples on the negative side.
+    We approximate this by sampling n_sampled hyperplanes via Gaussian normal vectors.
+
+    :param w: When the planted weights w (n, p) are given,
+              the first k columns of D_mat are the arrangement patterns generated by the planted neurons.
+    :param n_sampled: the number of sampled hyperplanes.
+              We then form their corresponding arrangement patterns and take the unique ones.
+
+    :return:
+    - D_mat, a (n, p) matrix of the arrangement patterns
+    - the indices into the original randomly generated normal vectors
+    - a boolean returned by `check_degenerate_arr_pattern`
+    """
+    n, d = X.shape
+    if n_sampled is None:
+        n_sampled = max(n, 50)
+    U1 = np.random.randn(d, n_sampled)
+    if w is not None:
+        U1 = np.concatenate([w, U1], axis=1)
+    arr_patterns = X @ U1 >= 0
+
+    # remove duplicates (since H should be a set). define p to be the number of unique patterns,
+    # so D_mat is a (n x p) matrix.
+    D_mat, ind = np.unique(arr_patterns, axis=1, return_index=True)
+    exists_all_ones = check_degenerate_arr_pattern(X)
+    if exists_all_ones:
+        D_mat = np.concatenate([D_mat, np.ones((n, 1))], axis=1)
+    return D_mat, ind, exists_all_ones
+
+
+def idx_of_planted_in_patterns(ind, k=1):
+    """
+    Get the indices in D_mat corresponding to the k planted neurons.
+    See the definition of `get_arrangement_patterns`:
+    When the planted w is given, the first k columns of the randomly sampled hyperplanes
+    are the arrangements corresponding to w.
+
+    :return: j such that D_mat[:, j] is the arrangement pattern of the ith planted neuron.
+    """
+    return np.nonzero(ind == np.arange(k)[:, None])[1]
+
+
+def mult_diag(D: np.ndarray, X: np.ndarray):
+    """
+    Multiply a diagonal matrix whose diagonal is D (n) with X (n x d).
+    This is O(d*n), while constructing a diagonal matrix and multiplying is O(d*n^2).
+
+    If D is a matrix whose columns are diagonals (n x k), then
+    this function returns a 3-tensor (k, n, d) whose k-th element is the matrix np.diag(D[:, k]) @ X.
+    """
+    if D.ndim == 2:
+        return D.T[:, :, None] * X
+    return D.reshape(-1, 1) * X
+
+
+def save_results(save_folder: str, records: dict):
+    if not os.path.exists(save_folder):
+        print("Creating folder: {}".format(save_folder))
+        os.makedirs(save_folder)
+
+    for prop, value in records.item():
+        save_path = save_folder + prop
+        np.save(save_path, value)
         print("Saved " + prop + " to " + save_path + ".npy")
-        grid = np.mean(records[prop], axis=2).T
+
+
+def plot_results(records: dict, nvec, dvec, save_folder: str = None):
+    xgrid, ygrid = np.meshgrid(nvec, dvec)
+    fig, (ax,) = plt.subplots(1, len(records), figsize=(5 * len(records), 5), squeeze=False)
+    for i, (prop, values) in enumerate(records.items()):
+        grid = np.mean(values, axis=2).T
 
         # if plot phase transition for distance, use extend='max'
-        cs = ax[i].contourf(
-            xgrid, ygrid, grid, levels=np.linspace(0, 1), cmap="jet", extend="max"
-        )
+        cs = ax[i].contourf(xgrid, ygrid, grid, levels=np.linspace(0, 1), cmap="jet", extend="max")
 
         # if plot phase transition for probability
         # cs = ax.contourf(X, Y, Z, levels=np.arange(0,1.1,0.1), cmap=cm.jet)
@@ -272,5 +305,6 @@ def plot_and_save(save_folder, records, record_properties, nvec, dvec):
         ax[i].set_ylabel("d")
         ax[i].set_title(prop)
 
-    fig.savefig(save_folder + "/figure.png")
+    if save_folder is not None:
+        fig.savefig(save_folder + "figure.png")
     plt.show()
