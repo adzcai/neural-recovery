@@ -1,18 +1,17 @@
 from typing import Optional
 import numpy as np
 
-from common import generate_data
+from common import generate_X, generate_data
 
 
 def get_metrics(program_args, *args, **kwargs):
     model, form = program_args.model, program_args.form
+    if model == "plain":
+        return get_metrics_skip(program_args, *args, **kwargs)
     if model == "normalize":
         return get_metrics_normalize(program_args, *args, **kwargs)
     elif model == "skip":
-        if form == "convex":
-            return get_metrics_skip(program_args, *args, **kwargs)
-        elif form == "minnorm":
-            return get_loss_skip_relax(program_args, *args, **kwargs)
+        return get_metrics_skip(program_args, *args, **kwargs)
     else:
         raise NotImplementedError("Unknown model: %s" % model)
 
@@ -76,30 +75,39 @@ def get_metrics_normalize(
     }
 
 
-def get_metrics_skip(args, X, _dmat, _ind, w, w_skip, W_pos, W_neg):
+def get_metrics_skip(
+    args, X, _dmat, _ind, w_true, w_skip, W_pos, W_neg=None, atol=1e-4
+):
+    """
+    For underlying linear weights w,
+    we define "recovery" as the following:
+    the learned weights w_skip are close to w,
+    and all of the learned weights (for the relu) W are close to 0.
+
+    This either accepts a single W_pos for the relaxed convex formulation,
+    or a W_pos and W_neg for the exact or approximate formulation.
+    """
     n, d = X.shape
-    dis_abs = np.linalg.norm(w - w_skip)  # recovery error of linear weights
+
+    dis_abs = np.linalg.norm(w_true - w_skip)  # recovery error of linear weights
 
     # generate test data and calculate total test accuracy (MSE)
-    X_test, z = generate_data(n, d, args)
-    pos = np.maximum(0, X_test @ W_pos)
-    neg = np.maximum(0, X_test @ W_neg)
-    y_predict = np.sum(pos - neg, axis=1) + X_test @ w_skip
-    test_err = np.linalg.norm(y_predict - X_test @ w)
+    X_test = generate_X(n, d, args.optx)
+    if W_neg is not None:
+        pos = np.maximum(0, X_test @ W_pos)  # relu
+        neg = np.maximum(0, X_test @ W_neg)  # relu
+        outputs = pos - neg
+    else:
+        outputs = np.maximum(0, X_test @ W_pos)
 
-    return {
-        "dis_abs": dis_abs,
-        "test_err": test_err,
-    }
+    y_predict = np.sum(outputs, axis=1) + X_test @ w_skip
+    test_err = np.linalg.norm(y_predict - X_test @ w_true)
 
-
-def get_loss_skip_relax(args, X, _dmat, _ind, w, w_skip, W, atol=1e-4):
-    n, d = X.shape
-    dis_abs = np.linalg.norm(w - w_skip)
-    X_test = generate_data(n, d, args)[0]
-    y_predict = np.sum(np.maximum(0, X_test @ W), axis=1) + X_test @ w_skip
-    test_err = np.linalg.norm(y_predict - X_test @ w)
-    recovery = np.allclose(W, 0, atol=atol)
+    recovery = np.allclose(w_skip, w_true, atol=atol) and np.allclose(
+        W_pos, 0, atol=atol
+    )
+    if W_neg is not None:
+        recovery = recovery and np.allclose(W_neg, 0, atol=atol)
 
     return {
         "dis_abs": dis_abs,

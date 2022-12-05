@@ -3,32 +3,43 @@ import cvxpy as cp
 import numpy as np
 
 
-def cvx_relu_skip(X, y, dmat, beta):
+def cvx_relu(X, y, dmat, beta, skip=False):
     """
-    Convex formulation of skip network. See Equation 6 of the paper.
+    Convex formulation of skip network.
+    When skip == True, this is equation 211 of the paper,
+    which is an approximation of Equation 6 of the paper.
+    When skip == False, this is that equation but without the skip connection.
     """
     n, d = X.shape
     p = dmat.shape[1]
 
-    W0 = cp.Variable(d)
+    if skip:
+        W0 = cp.Variable(d)
     W_pos = cp.Variable((d, p))  # positive side
     W_neg = cp.Variable((d, p))  # negative side
 
     # constraints
     y_pos = cp.sum(cp.multiply(dmat, (X @ W_pos)), axis=1)
     y_neg = cp.sum(cp.multiply(dmat, (X @ W_neg)), axis=1)
+    signed_patterns = 2 * dmat - np.ones((n, p))
     constraints = [
-        cp.multiply((2 * dmat - np.ones((n, p))), (X @ W_pos)) >= 0,
-        cp.multiply((2 * dmat - np.ones((n, p))), (X @ W_neg)) >= 0,
+        cp.multiply(signed_patterns, (X @ W_pos)) >= 0,
+        cp.multiply(signed_patterns, (X @ W_neg)) >= 0,
     ]
 
     # objective
-    loss = cp.norm(X @ W0 + y_pos - y_neg - y, 2) ** 2
+    obj_term = y_pos - y_neg - y
+    if skip:
+        obj_term += X @ W0
+    loss = cp.norm(obj_term, 2) ** 2
     regw = cp.norm(W0, 2) + cp.mixed_norm(W_pos.T, 2, 1) + cp.mixed_norm(W_neg.T, 2, 1)
     obj = loss + beta * regw
 
     prob = cp.Problem(cp.Minimize(obj), constraints)
-    return prob, OrderedDict(W0=W0, W1=W_pos, W2=W_neg)
+    if skip:
+        return prob, OrderedDict(W0=W0, W1=W_pos, W2=W_neg)
+    else:
+        return prob, OrderedDict(W1=W_pos, W2=W_neg)
 
 
 def cvx_relu_skip_relax(X, y, dmat, beta):
