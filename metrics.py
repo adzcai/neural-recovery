@@ -1,7 +1,7 @@
 from typing import Optional
 import numpy as np
 
-from common import generate_X, generate_data
+from common import generate_X
 
 
 def get_metrics(program_args, *args, **kwargs):
@@ -47,8 +47,8 @@ def get_metrics_normalize(
     :param w_pos: (n, p) the learned negative weights
     :param tol: the tolerance to use for checking if a learned neuron matches the grounded truth.
     """
-    p = w.shape[1]
-    i_map = np.zeros(p)
+    k = w.shape[1]
+    i_map = np.zeros(k)
 
     n, d = X.shape
 
@@ -56,14 +56,14 @@ def get_metrics_normalize(
     if w_neg is not None:
         distances -= w_neg
 
-    for j in range(p):  # for each of the planted neurons
-        # get the smallest index k such that ind[k] = j
-        # and therefore dmat[:, k] gives the jth vector in the _original_ dmat (before picking unique columns)
+    for j in range(k):  # for each of the planted neurons
+        # get the smallest index idx such that ind[idx] = j
+        # and therefore dmat[:, idx] gives the jth vector in the _original_ dmat (before picking unique columns)
         # TODO is this always included in the new dmat though? why does this need to be included?
-        k = np.nonzero(ind == j)[0][0]
-        i_map[j] = k
+        idx = np.nonzero(ind == j)[0][0]
+        i_map[j] = idx
         wj = w[:, j]  # (d,)
-        dj = dmat[:, k]
+        dj = dmat[:, idx]
 
         _Uj, Sj, Vjh = np.linalg.svd(dj.reshape((n, 1)) * X, full_matrices=False)
         # scale the right singular vectors according to their singular values,
@@ -130,19 +130,18 @@ def get_metrics_skip(
 
 
 def get_metrics_plain_approx(args, X, _dmat, _ind, W_true, W_pos, W_neg=None):
-    # Currently a special case of Proposition 4 (all r are 1)
-    # Relu planted model, plain relu learned, approx formulation
+    """
+    Planted: ReLU_plain
+    Learned: ReLU_plain
+    Formulation: approx formulation
 
-    # W is (d, k)
-    # W_pos is (d, p)
-    # W_neg is (d, p)
-
-    # print highest five norms of colums of W_pos
-    
+    W_true: (d, k)
+    W_pos: (d, p)
+    W_neg: (d, p)
+    """
 
     n, d = X.shape
 
-    # print("W_true", W_true.shape, "W_pos", W_pos.shape)
     dis_abs = 0  # np.linalg.norm(W_true - W_pos)  # recovery error of linear weights
 
     # generate test data and calculate total test accuracy (MSE)

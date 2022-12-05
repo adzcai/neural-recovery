@@ -131,7 +131,7 @@ def get_arrangement_patterns(X, w=None, mh: Optional[int] = None):
     if w is not None:
         U1 = np.concatenate([w, U1], axis=1)
     arr_patterns = X @ U1 >= 0
-    arr_patterns, ind = np.unique(arr_patterns, axis=1, return_index=True)
+    arr_patterns, ind = np.unique(arr_patterns, axis=1, return_index=True)  # remove duplicates. define p to be the number of unique patterns
     exists_all_ones = check_degenerate_arr_pattern(X)
     if exists_all_ones:
         arr_patterns = np.concatenate([arr_patterns, np.ones((n, 1))], axis=1)

@@ -5,10 +5,12 @@ import numpy as np
 
 def cvx_relu(X, y, dmat, beta, skip=False, exact=False):
     """
-    Convex formulation of either plain relu network or a network with skip connection when skip is True..
-    When skip == True, this is equation 211 of the paper,
-    which is an approximation of Equation 6 of the paper.
-    When skip == False, this is that equation but without the skip connection.
+    Convex formulation of either plain relu network or a network with skip connection when skip is True.
+
+    if not exact and skip, this is 211
+    if not exact and not skip, this is modified 211
+    if exact and skip, this is 6, with the w_0 norm added (we think this was a typo)
+    if exact and not skip, this is 11
     """
     n, d = X.shape
     p = dmat.shape[1]
@@ -27,10 +29,6 @@ def cvx_relu(X, y, dmat, beta, skip=False, exact=False):
         cp.multiply(signed_patterns, (X @ W_neg)) >= 0,
     ]
 
-    # if not exact and skip, this is 211
-    # if not exact and not skip, this is modified 211
-    # if exact and skip, this is 6, with the w_0 norm added (we think this was a typo)
-    # if exact and not skip, this is 11
     y_hat = y_pos - y_neg
     norm = cp.mixed_norm(W_pos.T, 2, 1) + cp.mixed_norm(W_neg.T, 2, 1)
     if skip:
@@ -51,7 +49,7 @@ def cvx_relu(X, y, dmat, beta, skip=False, exact=False):
         return prob, OrderedDict(W1=W_pos, W2=W_neg)
 
 
-def cvx_relu_skip_relax(X, y, dmat, beta):
+def cvx_relu_relax(X, y, dmat, _beta, skip=False):
     """
     Equation 15 of the paper,
     a relaxation (by dropping inequality constraints) of Equation 6,
@@ -65,7 +63,10 @@ def cvx_relu_skip_relax(X, y, dmat, beta):
 
     obj = cp.norm(W0, 2) + cp.mixed_norm(W.T, 2, 1)
     # \sum_j D_j X W_j + X w_0 == y
-    constraints = [cp.sum(cp.multiply(dmat, (X @ W)), axis=1) + X @ W0 == y]
+    y_hat = cp.sum(cp.multiply(dmat, (X @ W)), axis=1)
+    if skip:
+        y_hat += X @ W0
+    constraints = [y_hat == y]
 
     prob = cp.Problem(cp.Minimize(obj), constraints)
     return prob, OrderedDict(W0=W0, W=W)
@@ -84,7 +85,7 @@ def cvx_relu_normalize(X, y, dmat, beta):
     W_pos = cp.Variable((d, p))
     W_neg = cp.Variable((d, p))
 
-    expr = cp.Variable(n)  # dummy variable for constructing objective
+    y_hat = cp.Variable(n)  # dummy variable for constructing objective
 
     constraints = []
     for i in range(p):
@@ -95,16 +96,16 @@ def cvx_relu_normalize(X, y, dmat, beta):
         if ri == 0:
             constraints += [W_pos[:, i] == 0, W_neg[:, i] == 0]
         else:
-            expr += Ui[:, np.arange(ri)] @ (
+            y_hat += Ui[:, np.arange(ri)] @ (
                 W_pos[np.arange(ri), i] - W_neg[np.arange(ri), i]
             )
 
             X1 = X @ Vh[np.arange(ri), :].T @ np.diag(1 / S[np.arange(ri)])
-            X2 = (2 * di - 1) * X1
+            signed_pattern = (2 * di - 1) * X1
 
             constraints += [
-                X2 @ W_pos[np.arange(ri), i] >= 0,
-                X2 @ W_neg[np.arange(ri), i] >= 0,
+                signed_pattern @ W_pos[np.arange(ri), i] >= 0,
+                signed_pattern @ W_neg[np.arange(ri), i] >= 0,
             ]
             if ri < d:
                 constraints += [
@@ -113,9 +114,9 @@ def cvx_relu_normalize(X, y, dmat, beta):
                 ]
 
     # objective
-    loss = cp.norm(expr - y, 2) ** 2
-    regw = cp.mixed_norm(W_pos.T, 2, 1) + cp.mixed_norm(W_neg.T, 2, 1)
-    obj = loss + beta * regw
+    loss = cp.norm(y_hat - y, p=2) ** 2
+    norm = cp.mixed_norm(W_pos.T, 2, 1) + cp.mixed_norm(W_neg.T, 2, 1)
+    obj = loss + beta * norm
 
     prob = cp.Problem(cp.Minimize(obj), constraints)
     return prob, OrderedDict(W_pos=W_pos, W_neg=W_neg)

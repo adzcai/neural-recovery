@@ -1,11 +1,12 @@
 import cvxpy as cp
+import numpy as np
 
 from common import generate_data, get_arrangement_patterns
 from cvx_problems import (
     cvx_relu_normalize,
     cvx_relu_normalize_relax,
     cvx_relu,
-    cvx_relu_skip_relax,
+    cvx_relu_relax,
 )
 from metrics import get_metrics
 
@@ -24,17 +25,19 @@ def solve_problem(n, d, args):
             prob, variables = cvx_relu(X, y, dmat, args.beta, skip=False)
         elif args.form == 'exact':
             prob, variables = cvx_relu(X, y, dmat, args.beta, skip=False, exact=True)
-        # else:
-        #     prob, variables = cvx_relu_skip_relax(X, y, dmat, args.beta)
+        elif args.form == "relaxed":
+            prob, variables = cvx_relu_relax(X, y, dmat, args.beta, skip=False)
+        else:
+            raise ValueError("Unknown form {}".format(args.form))
     elif args.model == "skip":
         if args.form == "approx":
             prob, variables = cvx_relu(X, y, dmat, args.beta, skip=True)
         elif args.form == "exact":
             prob, variables = cvx_relu(X, y, dmat, args.beta, skip=True, exact=True)    
         elif args.form == "relaxed":
-            prob, variables = cvx_relu_skip_relax(X, y, dmat, args.beta)
+            prob, variables = cvx_relu_relax(X, y, dmat, args.beta, skip=True)
         else:
-            assert False
+            raise ValueError("Unknown form {}".format(args.form))
     elif args.model == "normalize":
         if args.form == "approx":
             prob, variables = cvx_relu_normalize(X, y, dmat, args.beta)
