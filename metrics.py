@@ -1,32 +1,42 @@
+"""
+This file contains the metrics used to evaluate the performance of the learned models.
+In general, functions expect the following arguments in the given order:
+- args: the program arguments
+- X: (n, d) the data matrix
+- D_mat: (n, p) the arrangement patterns
+- ind: (p) the indices of the arrangement patterns in the original random set
+- w: (d, k) the planted weights
+- w_pos: (d, p) the learned (positive) weights
+- w_neg: (d, p) the learned negative weights
+- w_skip: (d) the learned skip weights
+- atol: the tolerance to use for checking if a learned neuron matches the grounded truth.
+"""
+
 from typing import Optional
 import numpy as np
 
-from common import generate_X, idx_of_planted_in_patterns, mult_diag
+from common import generate_X, generate_y, idx_of_planted_in_patterns, mult_diag
+from cvx_problems import Variables
 
 
-def get_metrics(program_args, *args):
-    model, form, planted = program_args.model, program_args.form, program_args.planted
+def get_metrics(args, X, w, D_mat, ind, variables):
+    model = args.learned
     if model == "plain":
-        if planted == "plain":
-            return get_metrics_plain_approx(program_args, *args)
-        else:
-            return get_metrics_skip(program_args, *args)
+        return get_metrics_plain(X, w, variables)
     if model == "normalized":
-        return get_metrics_normalized(program_args, *args)
+        return get_metrics_normalized(X, w, D_mat, ind, variables)
     elif model == "skip":
-        return get_metrics_skip(program_args, *args)
+        return get_metrics_skip(w, variables)
     else:
         raise NotImplementedError("Unknown model: %s" % model)
 
 
 def get_metrics_normalized(
-    args,
     X: np.ndarray,
+    W_true: np.ndarray,
     D_mat: np.ndarray,
     ind: np.ndarray,
-    w: np.ndarray,
-    w_pos: np.ndarray,
-    w_neg: Optional[np.ndarray] = None,
+    variables: Variables,
     atol=1e-4,
 ):
     """
@@ -47,29 +57,28 @@ def get_metrics_normalized(
     :param w_pos: (n, p) the learned negative weights
     :param tol: the tolerance to use for checking if a learned neuron matches the grounded truth.
     """
-    k = w.shape[1]
+    k = W_true.shape[1]
 
-    if w_neg is None:
-        w_neg = np.zeros_like(w_pos)
+    W_pos = variables.W_pos
+    W_neg = variables.W_neg if variables.W_neg is not None else np.zeros_like(W_pos)
 
     s = idx_of_planted_in_patterns(ind, k)  # element of [p]^k. the indices of the planted neurons in D_mat
-    DX = mult_diag(D_mat[s], X)  # (k, n, d)
-    _U, S, Vh = np.linalg.svd(DX, full_matrices=False)  # (k, n, m), (k, m), (k, m, d) where m = min(n, d)
-    PC = S[:, :, None] * Vh  # (k, m, d). Scale the right singular vectors by the singular values.
-    w_rotated = np.einsum("kmd,dk->mk", PC, w)  # take elementwise product and transpose
+    DX = mult_diag(D_mat[:, s], X)  # (k, n, d)
+    _U, S, Vh = np.linalg.svd(DX, full_matrices=False)  # (k, n, d), (k, d), (k, d, d). assumes d < n
+    PC = S[:, :, None] * Vh  # (k, d, d). Scale the right singular vectors by the singular values.
+    w_rotated = np.einsum("kmd, dk -> mk", PC, W_true)  # (d, k). take elementwise product and transpose
     w_rotated /= np.linalg.norm(w_rotated, axis=0)
-    diff = (w_pos - w_neg)[s] - w_rotated
+    diff = W_pos[:, s] - W_neg[:, s] - w_rotated  # all have shape (d, k)
     dis_abs = np.linalg.norm(diff, ord="fro")
     recovery = np.allclose(diff, 0, atol=atol)
 
     return {
-        "i_map": s,
         "dis_abs": dis_abs,
         "recovery": recovery,
     }
 
 
-def get_metrics_skip(args, X, _dmat, _ind, w_true, w_skip, W_pos, W_neg=None, atol=1e-4):
+def get_metrics_skip(w_true, variables: Variables, atol=1e-4):
     """
     Planted: Linear
     Learned: ReLU+skip
@@ -82,21 +91,9 @@ def get_metrics_skip(args, X, _dmat, _ind, w_true, w_skip, W_pos, W_neg=None, at
     the learned weights w_skip are close to w,
     and all of the learned weights (for the relu) W are close to 0.
     """
-    n, d = X.shape
 
+    w_skip, W_pos, W_neg = variables
     dis_abs = np.linalg.norm(w_true - w_skip)  # recovery error of linear weights
-
-    # generate test data and calculate total test accuracy (MSE)
-    X_test = generate_X(n, d, cubic=args.optx in [1, 3], whiten=args.optx in [2, 3])
-    if W_neg is not None:
-        pos = np.maximum(0, X_test @ W_pos)  # relu
-        neg = np.maximum(0, X_test @ W_neg)  # relu
-        outputs = pos - neg
-    else:
-        outputs = np.maximum(0, X_test @ W_pos)
-
-    y_predict = np.sum(outputs, axis=1) + X_test @ w_skip
-    test_err = np.linalg.norm(y_predict - X_test @ w_true)
 
     recovery = np.allclose(w_skip, w_true, atol=atol) and np.allclose(W_pos, 0, atol=atol)
     if W_neg is not None:
@@ -104,38 +101,23 @@ def get_metrics_skip(args, X, _dmat, _ind, w_true, w_skip, W_pos, W_neg=None, at
 
     return {
         "dis_abs": dis_abs,
-        "test_err": test_err,
         "recovery": recovery,
     }
 
 
-def get_metrics_plain_approx(args, X, _dmat, _ind, W_true, W_pos, W_neg=None):
+def get_metrics_plain(X, W_true, variables: Variables):
     """
     Planted: ReLU_plain
     Learned: ReLU_plain
-    Formulation: approx formulation
 
     W_true: (d, k)
     W_pos: (d, p)
     W_neg: (d, p)
     """
 
-    n, d = X.shape
+    _, W_pos, W_neg = variables
 
     dis_abs = 0  # np.linalg.norm(W_true - W_pos)  # recovery error of linear weights
-
-    # generate test data and calculate total test accuracy (MSE)
-    X_test = generate_X(n, d, args.optx)
-    if W_neg is not None:
-        pos = np.maximum(0, X_test @ W_pos)  # relu
-        neg = np.maximum(0, X_test @ W_neg)  # relu
-        outputs = pos - neg
-    else:
-        outputs = np.maximum(0, X_test @ W_pos)
-
-    y_predict = np.sum(outputs, axis=1)
-    y_true = np.sum(np.maximum(0, X_test @ W_true), axis=1)
-    test_err = np.linalg.norm(y_predict - y_true)
 
     recovery = True
     for neuron in W_true.T:
@@ -149,6 +131,14 @@ def get_metrics_plain_approx(args, X, _dmat, _ind, W_true, W_pos, W_neg=None):
 
     return {
         "dis_abs": dis_abs,
-        "test_err": test_err,
         "recovery": recovery,
     }
+
+
+def get_test_err(n, d, optx, planted, learned, W_true, variables: Variables):
+    # generate test data and calculate total test accuracy (MSE)
+    X_test = generate_X(n, d, cubic=optx in [1, 3], whiten=optx in [2, 3])
+    y_true = generate_y(X_test, Variables(W_pos=W_true), relu=planted != "linear", normalize=planted == "normalized")
+    y_hat = generate_y(X_test, variables, relu=True, normalize=learned == "normalized")
+    test_err = np.linalg.norm(y_hat - y_true)
+    return test_err

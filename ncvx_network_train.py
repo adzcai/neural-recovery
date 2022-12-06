@@ -2,6 +2,7 @@ import math
 
 import numpy as np
 import torch
+from cvx_problems import Variables
 
 from networks import ReLUnormal, ReLUskip
 from common import (
@@ -12,7 +13,7 @@ from common import (
 )
 
 
-def train_model(n, d, sample, args):
+def train_model(n, d, sample, args) -> dict:
     sigma = args.sigma
     data = {}  # empty dict
 
@@ -21,7 +22,7 @@ def train_model(n, d, sample, args):
 
     # test data
     Xtest = generate_X(n, d, args)
-    ytest = generate_y(args, X, w, sigma=sigma, eps=0, model=args.planted)
+    ytest = generate_y(X, Variables(W_pos=w), sigma=sigma, eps=0, relu=args.planted != "linear", normalize=args.planted == "normalized")
 
     data["X_test"] = Xtest
     data["y_test"] = ytest
@@ -29,7 +30,7 @@ def train_model(n, d, sample, args):
     Xtrain, ytrain, Xtest, ytest = [torch.from_numpy(t).float() for t in (X, y, Xtest, ytest)]
 
     m = n + 1
-    if args.model == "normal":
+    if args.learned == "normalized":
         model = ReLUnormal(m=m, n=n, d=d, act=args.act)
     else:
         model = ReLUskip(m=m, n=n, d=d, act=args.act)
@@ -39,7 +40,7 @@ def train_model(n, d, sample, args):
     data["loss_test"] = loss_test
     data["test_err"] = math.sqrt(loss_test[-1])
 
-    if args.model == "skip":
+    if args.learned == "skip":
         # compare the (merged) skip connection weights with the true weights
         w0 = model.w0.weight.detach().numpy()
         alpha0 = model.alpha0.weight.item()
@@ -58,7 +59,8 @@ def train_model(n, d, sample, args):
 
 
 def train_network(model, Xtrain, ytrain, Xtest, ytest, args):
-    if args.verbose:
+    verbose = not args.quiet
+    if verbose:
         print("---------------------------training---------------------------")
 
     # get initialization statistics
@@ -72,7 +74,7 @@ def train_network(model, Xtrain, ytrain, Xtest, ytest, args):
     loss_train = np.zeros(args.num_epoch)
     loss_test = np.zeros(args.num_epoch)
 
-    if args.verbose:
+    if verbose:
         print("Epoch [{}/{}], Train error: {}, Test error: {}".format(0, args.num_epoch, train_err_init, test_err_init))
 
     optimizer = torch.optim.AdamW(model.parameters(), lr=args.learning_rate, weight_decay=args.beta)
@@ -89,7 +91,7 @@ def train_network(model, Xtrain, ytrain, Xtest, ytest, args):
             test_err = torch.linalg.norm(model(Xtest) - ytest) ** 2
             loss_test[epoch] = test_err.item()
 
-        if args.verbose:
+        if verbose:
             print(
                 "Epoch [{}/{}], Train error: {}, Test error: {}".format(
                     epoch + 1, args.num_epoch, loss_train[epoch], loss_test[epoch]

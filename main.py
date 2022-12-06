@@ -14,7 +14,7 @@ from utils import check_irregular
 def get_args():
     parser = get_parser()
     args = parser.parse_args()
-    if args.model == "normalized":
+    if args.learned == "normalized":
         if args.optw is None:
             args.optw = 0
         if args.k is None:
@@ -22,10 +22,10 @@ def get_args():
                 args.k = 1
             else:
                 args.k = 2
-    elif args.model == "skip":
+    elif args.learned == "skip":
         if args.optw is None:
             args.optw = 1
-    elif args.model == "plain":
+    elif args.learned == "plain":
         if args.optw is None:
             args.optw = 0
     else:
@@ -57,28 +57,28 @@ def main():
     runtimes = np.zeros(len(nvec))
 
     n_iter = enumerate(nvec)
-    if args.verbose:
+    if not args.quiet:
         n_iter = tqdm(n_iter, position=0, total=len(nvec), leave=True)
     for nidx, n in n_iter:
         t0 = time()
         d_iter = enumerate(dvec)
-        if args.verbose:
+        if not args.quiet:
             d_iter = tqdm(d_iter, position=1, total=len(dvec), leave=False)
         for didx, d in d_iter:
-            if args.model == "normalized" and n < d:
+            if args.learned == "normalized" and n < d:
                 continue
 
             for i in range(args.sample):
                 if args.form == "gd":
-                    data = train_model(n, d, args)
+                    data, metrics = train_model(n, d, args)
                 elif args.form == "irregular":
                     prob = check_irregular(n, d, args)
-                    data = {"prob": prob}
+                    data, metrics = {"prob": prob}
                 else:
-                    data = solve_problem(n, d, args)
+                    data, metrics = solve_problem(n, d, args)
 
-                for prop in records:
-                    records[prop][nidx, didx, i] = data[prop]
+                for prop, value in metrics.items():
+                    records[prop][nidx, didx, i] = value
 
                 if save_weights:
                     with open(f"{save_folder}n{n}_d{d}_sample{i}.pkl", "wb") as file:

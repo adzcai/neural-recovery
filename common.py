@@ -7,24 +7,29 @@ import math
 import numpy as np
 import scipy.optimize as sciopt
 
+from cvx_problems import Variables
+
 
 def get_parser():
     parser = argparse.ArgumentParser(description="phase transition")
 
     # the involved models and optimization form
     parser.add_argument(
-        "--planted", type=str, default="linear", choices=["linear", "plain", "normalized"], help="planted model"
+        "planted",
+        type=str,
+        default="linear",
+        choices=["linear", "plain", "normalized"],
+        help="planted model",
     )
     parser.add_argument(
-        "--learned",
-        dest="model",
+        "learned",
         type=str,
         default="skip",
         choices=["plain", "skip", "normalized"],
         help="learned model for recovery",
     )
     parser.add_argument(
-        "--form",
+        "form",
         type=str,
         default="approx",
         choices=["gd", "exact", "approx", "relaxed"],
@@ -51,14 +56,13 @@ def get_parser():
         help="choice of X. 0=Gaussian, 1=Gaussian cubed, 2=whitened Gaussian, 3=whitened Gaussian cubed",
     )
 
-    parser.add_argument("--seed", type=int, default=97006855, help="random seed")
-    parser.add_argument("--sample", type=int, default=5, help="number of trials")
+    parser.add_argument("--seed", type=int, default=42, help="random seed")
+    parser.add_argument("--sample", type=int, default=5, help="number of trials per (n, d) pair")
 
     # plotting and meta level
-    parser.add_argument("--no_plot", action="store_true", help="avoid drawing plots")
-    parser.add_argument("--verbose", action="store_true", help="whether to print information while training")
-    parser.add_argument("--save_details", action="store_true", help="whether to save training results")
-    parser.add_argument("--save_folder", type=str, default="./results/", help="path to save results")
+    parser.add_argument("-q", "--quiet", action="store_true", help="whether to suppress error bars")
+    parser.add_argument("-s", "--save_details", action="store_true", help="whether to save training results")
+    parser.add_argument("-f", "--save_folder", type=str, default="./results/", help="path to save results")
 
     # nonconvex training
     parser.add_argument("--num_epoch", type=int, default=400, help="number of training epochs")
@@ -83,7 +87,7 @@ def get_save_folder(args, n: int = None, d: int = None, sample: int = None):
     if sample is None:
         sample = args.sample
 
-    return f"{args.save_folder}learned_{args.model}/planted_{args.planted}/form_{args.form}/trial__n{n}__d{d}__w{args.optw}__X{args.optx}__stdev{args.sigma}__sample{sample}/"
+    return f"{args.save_folder}learned_{args.learned}/planted_{args.planted}/form_{args.form}/trial__n{n}__d{d}__w{args.optw}__X{args.optx}__stdev{args.sigma}__sample{sample}/"
 
 
 def check_degenerate_arr_pattern(X):
@@ -123,7 +127,15 @@ def generate_data(n: int, d: int, args, data: Optional[dict] = None, eps: Option
     w = generate_w(X, args.k, args.optw)
 
     try:
-        y = generate_y(X, w, sigma=args.sigma, eps=eps, model=args.planted)
+        y = generate_y(
+            X,
+            w,
+            sigma=args.sigma,
+            eps=eps,
+            relu=args.planted != "linear",
+            normalize=args.planted == "normalized",
+            y_nonzero=True,
+        )
     except ValueError:
         # if the generated y has a column of all 0s, generate again
         return generate_data(n, d, args, data=data, eps=eps)
@@ -189,23 +201,38 @@ def generate_w(X, k, optw):
     return w
 
 
-def generate_y(X, w, sigma, eps=1e-10, model="linear"):
+def generate_y(X, weights: Variables, relu=False, normalize=False, sigma=0, eps=1e-10, y_nonzero=False):
     """
-    Generate y from the data X and the weights w.
-    :param model: the planted model
+    Generally uses the provided weights to calculate y from the given X and w.
+    Also used to generate y from the data X and the weights w.
+
+    :param sigma: the standard deviation of the noise.
+    :param eps: for checking if a column of y is close to 0
+    :return: y (n)
     """
-    if model == "normalized":
-        y = np.maximum(0, X @ w)  # relu
-        norm_y = np.linalg.norm(y, axis=0)
-        if np.any(norm_y < eps):
-            # if any columns are zero, re-generate
-            raise ValueError("Some columns of y are zero.")
-        y = np.sum(y / norm_y, axis=1)
-    elif model == "plain":
-        # assert False, str(w)
-        y = np.sum(np.maximum(0, X @ w), axis=1)  # relu
-    elif model == "linear":
-        y = X @ w
+
+    W_pos, W_neg, w_skip = weights
+
+    assert W_pos.ndim == 2, "w should be a 2D array."
+
+    y = X @ W_pos
+
+    if relu:
+        y = np.maximum(0, X @ W_pos)  # relu
+        if W_neg is not None:
+            y -= np.maximum(0, X @ W_neg)
+
+        if w_skip is not None:
+            y += X @ w_skip
+
+        if normalize:
+            norm_y = np.linalg.norm(y, axis=0)
+            if y_nonzero and np.any(norm_y < eps):
+                # if any columns are zero, re-generate
+                raise ValueError("Some columns of y are zero.")
+            y /= norm_y
+
+    y = np.sum(y, axis=1)  # relu
 
     if sigma > 0:  # add noise
         n = X.shape[0]
@@ -280,7 +307,7 @@ def save_results(save_folder: str, records: dict):
         print("Creating folder: {}".format(save_folder))
         os.makedirs(save_folder)
 
-    for prop, value in records.item():
+    for prop, value in records.items():
         save_path = save_folder + prop
         np.save(save_path, value)
         print("Saved " + prop + " to " + save_path + ".npy")

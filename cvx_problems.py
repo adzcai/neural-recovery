@@ -1,155 +1,209 @@
-from collections import OrderedDict
+from abc import ABC
+from collections import namedtuple
 import cvxpy as cp
 import numpy as np
 
+from common import mult_diag
 
-def cvx_relu(X, y, dmat, beta, skip=False, exact=False):
+
+Variables = namedtuple("Variables", ["W_pos", "W_neg", "w_skip"], defaults=[None] * 3)
+
+
+class ConvexProgram(ABC):
+    def get_objective(self) -> cp.Variable:
+        pass
+
+    def get_constraints(self) -> list[cp.Variable]:
+        pass
+
+    def get_variables(self) -> Variables:
+        """
+        Get a namedtuple of the variables in this problem.
+        """
+        variables = Variables()
+        if getattr(self, "W", None) is not None:
+            variables = variables._replace(W_pos=self.W.value)
+        if getattr(self, "W_pos", None) is not None:
+            variables = variables._replace(W_pos=self.W_pos.value)
+        if getattr(self, "W_neg", None) is not None:
+            variables = variables._replace(W_neg=self.W_neg.value)
+        if getattr(self, "w_skip", None) is not None:
+            variables = variables._replace(w_skip=self.w_skip.value)
+        return variables
+
+    def solve(self) -> tuple[cp.Problem, float, Variables]:
+        """
+        Compiles the objective and constraints and solves this convex program using Mosek.
+        """
+        prob = cp.Problem(cp.Minimize(self.get_objective()), self.get_constraints())
+        opt = prob.solve(solver=cp.MOSEK, warm_start=True, verbose=False, mosek_params={})
+        return prob, opt, self.get_variables()
+
+
+class ConvexReLU(ConvexProgram):
     """
     Convex formulation of either plain relu network or a network with skip connection when skip is True.
 
-    if not exact and skip, this is 211
-    if not exact and not skip, this is modified 211
-    if exact and skip, this is 6, with the w_0 norm added (we think this was a typo)
-    if exact and not skip, this is 11
+    arguments                |  equation and page number in the paper
+    -------------------------+-------------------------------------------------
+    not exact and skip,      |  211 (bottom of p. 57)
+    not exact and not skip   |  211 (skip connection removed)
+    exact and skip           |  6 (top of p. 5), with the w_0 norm added (we think this was a typo)
+    exact and not skip       |  11 (top of p. 8)
     """
-    n, d = X.shape
-    p = dmat.shape[1]
 
-    if skip:
-        W0 = cp.Variable(d)
-    W_pos = cp.Variable((d, p))  # positive side
-    W_neg = cp.Variable((d, p))  # negative side
+    def __init__(self, X, y, D_mat, beta, skip=False, exact=False):
+        super().__init__()
+        self.X = X
+        self.y = y
+        self.D_mat = D_mat
+        self.beta = beta
+        self.exact = exact
 
-    # constraints
-    y_pos = cp.sum(cp.multiply(dmat, (X @ W_pos)), axis=1)
-    y_neg = cp.sum(cp.multiply(dmat, (X @ W_neg)), axis=1)
-    signed_patterns = 2 * dmat - np.ones((n, p))
-    constraints = [
-        cp.multiply(signed_patterns, (X @ W_pos)) >= 0,
-        cp.multiply(signed_patterns, (X @ W_neg)) >= 0,
-    ]
+        d = X.shape[1]
+        p = D_mat.shape[1]
 
-    y_hat = y_pos - y_neg
-    norm = cp.mixed_norm(W_pos.T, 2, 1) + cp.mixed_norm(W_neg.T, 2, 1)
-    if skip:
-        y_hat += X @ W0
-        norm += cp.norm(W0, 2)
+        self.W_pos = cp.Variable((d, p), "W_pos")
+        self.W_neg = cp.Variable((d, p), "W_neg")
+        if skip:
+            self.w_skip = cp.Variable(d, "W_skip")
+        else:
+            self.w_skip = None
 
-    if exact:
-        constraints += [y_hat == y]
-        obj = norm
-    else:
-        obj = cp.norm(y_hat - y, 2) ** 2 + beta * norm
+        y_pos = cp.sum(self.D_mat * (self.X @ self.W_pos), axis=1)
+        y_neg = cp.sum(self.D_mat * (self.X @ self.W_neg), axis=1)
+        self.residual = y_pos - y_neg - y
+        if skip:
+            self.residual += self.X @ self.w_skip
 
-    prob = cp.Problem(cp.Minimize(obj), constraints)
+    def get_objective(self):
+        norm = cp.mixed_norm(self.W_pos.T, 2, 1) + cp.mixed_norm(self.W_neg.T, 2, 1)
+        if self.w_skip is not None:
+            norm += cp.norm(self.w_skip, 2)
+        if self.exact:
+            return norm
+        else:
+            return cp.sum_squares(self.residual) + self.beta * norm
 
-    if skip:
-        return prob, OrderedDict(W0=W0, W1=W_pos, W2=W_neg)
-    else:
-        return prob, OrderedDict(W1=W_pos, W2=W_neg)
+    def get_constraints(self):
+        signed_patterns = 2 * self.D_mat - 1
+        constraints = [
+            signed_patterns * (self.X @ self.W_pos) >= 0,
+            signed_patterns * (self.X @ self.W_neg) >= 0,
+        ]
+        if self.exact:
+            constraints += [self.residual == 0]
+        return constraints
 
 
-def cvx_relu_relax(X, y, dmat, _beta, skip=False):
+class ConvexReLURelaxed(ConvexProgram):
     """
-    Equation 15 of the paper,
-    a relaxation (by dropping inequality constraints) of Equation 6,
-    which is implemented in `cvx_train_skip.py`.
+    Equation 15 of the paper (bottom of p. 8).
+    This is a relaxed version of Equation 6 (same as equation 14),
+    which is implemented above.
+    The inequality constraints are dropped.
     """
-    d = X.shape[1]
-    p = dmat.shape[1]
 
-    W0 = cp.Variable((d,))  # skip connections
-    W = cp.Variable((d, p))  # relu connections (second layer is all ones)
+    def __init__(self, X, y, D_mat, skip=False) -> tuple[cp.Problem, Variables]:
+        super().__init__()
+        self.X = X
+        self.y = y
+        self.D_mat = D_mat
 
-    obj = cp.norm(W0, 2) + cp.mixed_norm(W.T, 2, 1)
-    # \sum_j D_j X W_j + X w_0 == y
-    y_hat = cp.sum(cp.multiply(dmat, (X @ W)), axis=1)
-    if skip:
-        y_hat += X @ W0
-    constraints = [y_hat == y]
+        d = X.shape[1]
+        p = D_mat.shape[1]
 
-    prob = cp.Problem(cp.Minimize(obj), constraints)
-    return prob, OrderedDict(W0=W0, W=W)
+        self.W = cp.Variable((d, p), "W")  # relu connections (second layer is all ones)
+        if skip:
+            self.w_skip = cp.Variable(d, "W_skip")  # skip connections
+        else:
+            self.w_skip = None
+
+    def get_objective(self):
+        obj = cp.mixed_norm(self.W.T, 2, 1)
+        if self.w_skip is not None:
+            obj += cp.norm(self.w_skip, 2)
+        return obj
+
+    def get_constraints(self):
+        y_hat = cp.sum(self.D_mat * (self.X @ self.W), axis=1)
+        if self.w_skip is not None:
+            y_hat += self.X @ self.w_skip
+        return [y_hat == self.y]
 
 
-def cvx_relu_normalized(X, y, D_mat, beta):
+class ConvexReLUNormalized(ConvexProgram):
     """
     Implement the convex optimization problem in cvxpy.
-    Equation 27 in the paper, minus the skip connection.
+    If "exact" is True, this is an implementation of Equation 16 (top of page 9).
+    Otherwise, this implements the approximate form in Equation 212.
     This is equivalent to the regularized training of a two-layer relu network with normalization.
     """
 
-    n, d = X.shape
-    p = D_mat.shape[1]
+    def __init__(self, X, y, D_mat, beta, exact=False):
+        super().__init__()
+        n, d = X.shape
+        assert d <= n, "d must be less than or equal to n"
+        p = D_mat.shape[1]
 
-    W_pos = cp.Variable((d, p))
-    W_neg = cp.Variable((d, p))
+        self.beta = beta
+        self.exact = exact
+        self.D_mat = D_mat
 
-    y_hat = cp.Variable(n)  # dummy variable for constructing objective
+        self.W_pos = cp.Variable((d, p), "W_pos")
+        self.W_neg = cp.Variable((d, p), "W_neg")
 
-    constraints = []
-    for i in range(p):
-        di = D_mat[:, i].reshape((n, 1))
-        Xi = di * X
-        Ui, S, Vh = np.linalg.svd(Xi, full_matrices=False)
-        ri = np.linalg.matrix_rank(Xi)  # rank of Xi
-        if ri == 0:
-            constraints += [W_pos[:, i] == 0, W_neg[:, i] == 0]
+        U, S, _Vh = np.linalg.svd(mult_diag(D_mat, X), full_matrices=False)
+        self.mask = S > 1e-12
+        S[self.mask] = 1 / S[self.mask]  # take inverse of positive singular values
+        self.S_inv = S
+        self.residual = (
+            np.transpose(U, (1, 0, 2))[:, self.mask] @ (self.W_pos.T[self.mask] - self.W_neg.T[self.mask]) - y
+        )
+
+    def get_objective(self):
+        norm = cp.mixed_norm(self.W_pos.T, 2, 1) + cp.mixed_norm(self.W_neg.T, 2, 1)
+        if self.exact:
+            return norm
         else:
-            y_hat += Ui[:, np.arange(ri)] @ (W_pos[np.arange(ri), i] - W_neg[np.arange(ri), i])
+            return cp.sum_squares(self.residual) + self.beta * norm
 
-            X1 = X @ Vh[np.arange(ri), :].T @ np.diag(1 / S[np.arange(ri)])
-            signed_pattern = (2 * di - 1) * X1
-
-            constraints += [
-                signed_pattern @ W_pos[np.arange(ri), i] >= 0,
-                signed_pattern @ W_neg[np.arange(ri), i] >= 0,
-            ]
-            if ri < d:
-                constraints += [
-                    W_pos[np.arange(ri, d), i] == 0,
-                    W_neg[np.arange(ri, d), i] == 0,
-                ]
-
-    # objective
-    loss = cp.norm(y_hat - y, p=2) ** 2
-    norm = cp.mixed_norm(W_pos.T, 2, 1) + cp.mixed_norm(W_neg.T, 2, 1)
-    obj = loss + beta * norm
-
-    prob = cp.Problem(cp.Minimize(obj), constraints)
-    return prob, OrderedDict(W_pos=W_pos, W_neg=W_neg)
+    def get_constraints(self):
+        C = np.einsum("np, nd, pmd, pm -> npm", 2 * self.D_mat - 1, self.X, self.Vh, self.S_inv, optimize=True)
+        C = C[:, self.mask]
+        constraints = [C @ self.W_pos.T[self.mask] >= 0, C @ self.W_neg.T[self.mask] >= 0]
+        if not np.all(self.mask):
+            constraints += [self.W_pos.T[~self.mask] == 0, self.W_neg.T[~self.mask] == 0]
+        if self.exact:
+            constraints += [self.residual == 0]
+        return constraints
 
 
-def cvx_relu_normalized_relax(X, y, D_mat, _beta):
+class ConvexReLUNormalizedRelaxed(ConvexProgram):
     """
-    Implement Equation 17 in the paper.
-    After dropping all inequality constraints in Equation 16 (the equivalent convex program for a normalized relu network),
-    we're left with the group l1 norm minimization problem implemented below.
+    Implement Equation 17 in the paper (middle of page 9).
+    After dropping all inequality constraints in Equation 16 (above),
+    and we're left with the simple group l1 norm minimization problem implemented below.
     """
-    n, d = X.shape
-    p = D_mat.shape[1]
 
-    W = cp.Variable((d, p))
-    expr = cp.Variable(n)
+    def __init__(self, X, y, D_mat):
+        self.X = X
+        self.y = y
+        self.D_mat = D_mat
 
-    # constraints
-    constraints = []
-    for i in range(p):
-        Xi = D_mat[:, i].reshape((n, 1)) * X
-        Ui, _Si, _Vhi = np.linalg.svd(Xi, full_matrices=False)
-        ri = np.linalg.matrix_rank(Xi)
-        if ri == d:
-            expr += Ui @ W[:, i]
-        elif ri == 0:
-            constraints += [W[:, i] == 0]
-        else:
-            expr += Ui[:, np.arange(ri)] @ W[np.arange(ri), i]
-            # TODO where does the below constraint appear in the paper?
-            constraints += [W[np.arange(ri, d), i] == 0]
-    constraints += [expr == y]
+        d = X.shape[1]
+        p = D_mat.shape[1]
 
-    obj = cp.mixed_norm(W.T, 2, 1)  # TODO is the transpose necessary?
+        self.W = cp.Variable((d, p), "W")
 
-    # solve the problem
-    prob = cp.Problem(cp.Minimize(obj), constraints)
-    return prob, OrderedDict(W=W)
+    def get_objective(self):
+        return cp.mixed_norm(self.W.T, 2, 1)
+
+    def get_constraints(self):
+        U, S, _Vh = np.linalg.svd(mult_diag(self.D_mat, self.X), full_matrices=False)
+        mask = S > 1e-12
+        y_hat = np.transpose(U, (1, 0, 2))[:, mask] @ self.W.T[mask]
+        constraints = [y_hat == self.y]
+        if not np.all(mask):
+            constraints += [self.W.T[~mask] == 0]
+        return constraints

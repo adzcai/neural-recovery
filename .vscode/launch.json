@@ -10,12 +10,12 @@
             "request": "launch",
             "program": "main.py",
             "args": [
+                "normalized",
+                "normalized",
+                "approx",
                 "--n", "100",
                 "--d", "20",
-                "--planted", "linear",
-                "--form", "approx",
-                "--sample", "1",
-                "skip"
+                "--sample", "3"
             ],
             "console": "integratedTerminal",
             "justMyCode": true

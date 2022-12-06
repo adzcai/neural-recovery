@@ -163,7 +163,9 @@ def plot_condition():
         ]
     )
 
-    save_folder = "./results/nic/{}__n{}__d{}__k{}__X{}__w{}".format(args.cond, args.n, args.d, args.k, args.optx, args.optw)
+    save_folder = "./results/nic/{}__n{}__d{}__k{}__X{}__w{}".format(
+        args.cond, args.n, args.d, args.k, args.optx, args.optw
+    )
     plot_results(save_folder, records, [args.cond], nvec, dvec)
 
 
