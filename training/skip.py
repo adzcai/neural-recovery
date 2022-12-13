@@ -32,11 +32,9 @@ class ConvexReLU(ConvexProgram):
         d = X.shape[1]
         p = D_mat.shape[1]
 
-        self.W_pos = cp.Variable((d, p), "W_pos")
-        self.W_neg = cp.Variable((d, p), "W_neg") if self.form != "relaxed" else None
-        self.w_skip = cp.Variable(d, "W_skip") if skip else None
+        self.w_skip = cp.Variable(d, "w_skip") if skip else None
 
-        self.residual = self.predict(self.X, training=True) - self.y
+        self.residual = self.training_predict() - self.y
 
     def get_objective(self):
         norm = cp.mixed_norm(self.W_pos.T, 2, 1)
@@ -51,6 +49,9 @@ class ConvexReLU(ConvexProgram):
             return norm
 
     def get_constraints(self):
+        if self.form == "relaxed":
+            return [self.residual == 0]
+
         signed_patterns = 2 * self.D_mat - 1
         constraints = [cp.multiply(signed_patterns, self.X @ self.W_pos) >= 0]
         if self.W_neg is not None:
@@ -59,32 +60,27 @@ class ConvexReLU(ConvexProgram):
             constraints += [self.residual == 0]
         return constraints
 
-    def predict(self, X: np.ndarray, training=False) -> np.ndarray:
-        if training:
-            y_hat = cp.sum(cp.multiply(self.D_mat, (X @ self.W_pos)), axis=1)
-            if self.W_neg is not None:
-                y_hat -= cp.sum(cp.multiply(self.D_mat, (X @ self.W_neg)), axis=1)
-            if self.w_skip is not None:
-                y_hat += X @ self.w_skip
-        else:
-            W = self.W_pos.value
-            if self.W_neg is not None:
-                W += self.W_neg.value
-            y_hat = np.einsum("np, nd, dp -> n", self.D_mat, X, W, optimize=True)
-            if self.w_skip is not None:
-                y_hat += X @ self.w_skip.value
+    def training_predict(self):
+        """
+        Constrain this to be equal to y, or close to it (in the approximate case).
+        """
+        y_hat = cp.sum(cp.multiply(self.D_mat, (self.X @ self.W_pos)), axis=1)
+        if self.W_neg is not None:
+            y_hat -= cp.sum(cp.multiply(self.D_mat, (self.X @ self.W_neg)), axis=1)
+        if self.w_skip is not None:
+            y_hat += self.X @ self.w_skip
+        return y_hat
+
+    def predict(self, X: np.ndarray) -> np.ndarray:
+        y_hat = np.maximum(0, X @ self.W_pos.value)
+        if self.W_neg is not None:
+            y_hat -= np.maximum(0, X @ self.W_neg.value)
+        y_hat = y_hat.sum(axis=1)
+        if self.w_skip is not None:
+            y_hat += X @ self.w_skip.value
         return y_hat
 
     def get_metrics_plain(self, W_true: np.ndarray):
-        """
-        Planted: ReLU_plain
-        Learned: ReLU_plain
-
-        W_true: (d, k)
-        W_pos: (d, p)
-        W_neg: (d, p)
-        """
-
         dis_abs = 0  # np.linalg.norm(W_true - W_pos)  # recovery error of linear weights
 
         recovery = True
@@ -119,7 +115,9 @@ class ConvexReLU(ConvexProgram):
         w_true = W_true.flatten()
         dis_abs = np.linalg.norm(w_true - self.w_skip.value)  # recovery error of linear weights
 
-        recovery = np.allclose(self.w_skip.value, w_true, atol=tol) and np.allclose(self.W_pos.value, 0, atol=tol)
+        recovery = np.allclose(self.w_skip.value, w_true, atol=tol) and np.allclose(
+            self.W_pos.value, 0, atol=tol
+        )
         if self.W_neg is not None:
             recovery = recovery and np.allclose(self.W_neg.value, 0, atol=tol)
 

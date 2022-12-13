@@ -32,16 +32,11 @@ class ConvexProgram(ABC):
         """
         Get a namedtuple of the variables in this problem.
         """
-        variables = Variables()
-        if getattr(self, "W", None) is not None:
-            variables = variables._replace(W_pos=self.W.value)
-        if getattr(self, "W_pos", None) is not None:
-            variables = variables._replace(W_pos=self.W_pos.value)
-        if getattr(self, "W_neg", None) is not None:
-            variables = variables._replace(W_neg=self.W_neg.value)
-        if getattr(self, "w_skip", None) is not None:
-            variables = variables._replace(w_skip=self.w_skip.value)
-        return variables
+        variables = {}
+        for possible_var in ("W", "W_pos", "W_neg", "w_skip"):
+            if getattr(self, possible_var, None) is not None:
+                variables[possible_var] = getattr(self, possible_var).value
+        return Variables(variables)
 
     def predict(self, X: np.ndarray) -> np.ndarray:
         """

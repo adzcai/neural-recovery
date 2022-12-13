@@ -8,7 +8,6 @@ from utils import Args, check_folder, save_results
 from training.ncvx_network_train import train_model
 from plot import plot_results
 from solve_problem import solve_problem
-from misc import check_irrepresentable
 
 
 def main():
@@ -47,9 +46,6 @@ def main():
             for i in range(args.sample):
                 if args.form == "gd":
                     data, metrics = train_model(n, d, args)
-                elif args.form == "irregular":
-                    prob = check_irrepresentable(n, d, args)
-                    data, metrics = {"prob": prob}
                 else:
                     data, metrics = solve_problem(n, d, args)
 

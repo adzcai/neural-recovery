@@ -13,9 +13,8 @@ def solve_problem(n: int, d: int, args: Args) -> Tuple[dict, dict]:
     data, metrics = {}, {}
     X, W, y = generate_data(n, d, args, data=data, eps=1e-10)
 
-    mh = max(50, 2 * n if args.form == "irregular" else n)
     D_mat, ind, metrics["exist_all_one"] = get_arrangement_patterns(
-        X, w=W if args.learned == "normalized" else None, p_hat=mh
+        X, w=W if args.learned == "normalized" else None, p_hat=max(50, n)
     )
 
     skip = args.learned == "skip"
@@ -24,11 +23,10 @@ def solve_problem(n: int, d: int, args: Args) -> Tuple[dict, dict]:
     elif args.learned == "normalized":
         program = ConvexReLUNormalized(args.form, X, y, D_mat, beta=args.beta)
 
-    _problem, metrics["obj"] = program.solve()
-    variables = program.get_variables()
+    program.solve()  # SOLVE THE PROBLEM
 
     data["dmat"] = D_mat
-    for key, value in variables._asdict().items():
+    for key, value in program.get_variables()._asdict().items():
         if value is not None:
             data["opt_" + key] = value
 

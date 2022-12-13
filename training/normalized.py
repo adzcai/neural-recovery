@@ -22,7 +22,7 @@ class ConvexReLUNormalized(ConvexProgram):
         assert d <= n, "d must be less than or equal to n"
 
         self.U_masked, self.S_inv, self.Vh, self.mask = self.get_svd()
-        self.residual = self.predict(X, training=True) - y
+        self.residual = self.predict_training() - y
 
     def get_svd(self, tol=1e-12) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
         """
@@ -70,19 +70,19 @@ class ConvexReLUNormalized(ConvexProgram):
 
         return constraints
 
-    def predict(self, X: np.ndarray, training=False) -> np.ndarray:
-        if training:
-            W = self.W_pos.T[self.mask]
-            if self.W_neg is not None:
-                W -= self.W_neg.T[self.mask]
-            return self.U_masked @ W
-        else:
-            W = self.W_pos.value
-            if self.W_neg is not None:
-                W -= self.W_neg.value
-            y_hat = X @ W  # (n, p)
-            y_hat /= np.linalg.norm(y_hat, axis=0)
-            return y_hat.sum(axis=1)
+    def predict_training(self):
+        W = self.W_pos.T[self.mask]
+        if self.W_neg is not None:
+            W -= self.W_neg.T[self.mask]
+        return self.U_masked @ W
+
+    def predict(self, X: np.ndarray) -> np.ndarray:
+        W = self.W_pos.value
+        if self.W_neg is not None:
+            W -= self.W_neg.value
+        y_hat = X @ W  # (n, p)
+        y_hat /= np.linalg.norm(y_hat, axis=0)
+        return y_hat.sum(axis=1)
 
     def get_metrics(
         self,

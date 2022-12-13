@@ -52,7 +52,6 @@ def check_irrepresentable(n, d, args):
     return count == 0
 
 
-
 def RIP(X, w, dmat):
     """
     Restricted Isometry Property
