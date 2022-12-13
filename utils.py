@@ -1,97 +1,174 @@
 import numpy as np
-import matplotlib.pyplot as plt
-
-from common import generate_X, generate_w, get_arrangement_patterns
-
-
-def get_prob():
-    seed = 18116275
-    # seed = np.random.randint(1e8)
-    print("seed = " + str(seed))
-    np.random.seed(seed)
-    n = 100
-    n1 = n // 2
-    n2 = n - n1
-    sample = 5000
-    dvec = np.arange(20, 100, 20)
-    svec = np.arange(1, 9, 0.5)
-    dlen = dvec.size
-    slen = svec.size
-    prob = np.zeros((slen, dlen))
-    fig1, ax1 = plt.subplots()
-    opt = 3  # type of \mu_1 and \mu_2
-
-    for didx, d in enumerate(dvec):
-        print("d = " + str(d))
-        for sidx, sigma in enumerate(svec):
-            count = 0
-            if opt == 1:
-                mu1 = np.ones((1, d))
-                mu2 = -np.ones((1, d))
-            elif opt == 2:
-                mu1 = np.random.randn(1, d)
-                mu2 = np.random.randn(1, d)
-            elif opt == 3:
-                mu1 = np.random.randn(1, d)
-                mu1 = mu1 / np.linalg.norm(mu1)
-                mu2 = np.random.randn(1, d)
-                mu2 = mu2 / np.linalg.norm(mu2)
-
-            for i in range(sample):
-                z1 = np.random.randn(n1, d) / sigma
-                z2 = np.random.randn(n2, d) / sigma
-                X = np.concatenate([mu1 + z1, mu2 + z2])
-                u = mu1 / np.linalg.norm(mu1) - mu2 / np.linalg.norm(mu2)
-                di = X @ u.T >= 0
-                if np.all(di[0:n1]) and not np.any(di[n1:n]):
-                    count += 1
-
-            prob[sidx, didx] = count / sample
-
-    np.save("ReLU_prob" + str(opt), prob)
-
-    for didx, d in enumerate(dvec):
-        ax1.plot(svec, prob[:, didx], "o-", markersize=4, label="d = " + str(d))
-
-    ax1.set_xlabel("$\sigma$")
-    ax1.set_ylabel("Probability")
-    ax1.set_ylim(-0.1, 1.1)
-    ax1.legend()
-    plt.show()
-    fig1.savefig("ReLU_prob" + str(opt) + ".png")
+import os
+import argparse
+from dataclasses import asdict, dataclass
 
 
-def check_irregular(n, d, args):
-    eps = 1e-10
-    X = generate_X(n, d, args.optx)
-    w = generate_w(X, args.k, args.optw)
-    dmat, ind, _i_map = get_arrangement_patterns(X, w, n_sampled=max(n * 2, 50))
+ALL_PLANTED = ["linear", "plain", "normalized"]
+ALL_LEARNED = ["plain", "skip", "normalized"]
+ALL_FORMS = ["gd", "exact", "approx", "relaxed"]
 
-    j_array = np.nonzero(ind <= args.k - 1)[0]
-    j_map = ind[j_array]
 
-    U = np.zeros((n, 0))
-    uu = []
-    for jidx, j in enumerate(j_array):
-        k = j_map[jidx]
-        Xj = dmat[:, j].reshape((n, 1)) * X
-        Uj, Sj, Vjh = np.linalg.svd(Xj, full_matrices=False)
-        rj = np.linalg.matrix_rank(Xj)
-        wj = (Sj.reshape((d, 1)) * Vjh) @ w[:, k]
-        wj = wj / np.linalg.norm(wj)
-        U = np.concatenate([U, Uj[:, np.arange(rj)]], axis=1)
-        uu = np.concatenate([uu, wj[np.arange(rj)]])
-    lam = U @ np.linalg.pinv(U.T @ U) @ uu
+@dataclass
+class Args:
+    """
+    Arguments for the experiment. See get_parser for details.
+    """
 
-    m1 = dmat.shape[1]
-    count = 0
-    for j in range(m1):
-        if j in j_array:
-            continue
-        dj = dmat[:, j]
-        Xj = dj.reshape((n, 1)) * X
-        Uj, Sj, Vjh = np.linalg.svd(Xj, full_matrices=False)
-        if np.linalg.norm(Uj.T @ lam) >= 1 + eps:
-            count += 1
+    planted: str
+    learned: str
+    form: str
 
-    return count == 0
+    n: int = 400
+    d: int = 100
+    k: int = None
+
+    sigma: float = 0.0
+    tol: float = 1e-4
+    optw: int = None
+    optx: int = 0
+    cubic: bool = False
+    whiten: bool = False
+
+    seed: int = 42
+    sample: int = 5
+
+    quiet: bool = False
+    save_details: bool = False
+    save_folder: str = "./results/"
+    cmap: str = "jet"
+
+    num_epoch: int = 400
+    lr: float = 2e-3
+    beta: float = 1e-6
+    activation: str = "relu"
+
+    @staticmethod
+    def parse():
+        args = vars(get_parser().parse_args())
+        return Args(**{k: v for k, v in args.items() if v is not None})
+
+    def __post_init__(self):
+        assert (
+            self.planted in ALL_PLANTED and self.learned in ALL_LEARNED and self.form in ALL_FORMS
+        )
+
+        if self.k is None:
+            if self.planted == "normalized" and self.form != "relaxed":
+                self.k = 2
+            else:
+                self.k = 1
+
+        if self.optw is None:
+            if self.learned == "skip":
+                self.optw = 1
+            else:
+                self.optw = 0
+
+        self.cubic = self.optx in [1, 3]
+        self.whiten = self.optx in [2, 3]
+
+        if not self.quiet:
+            # print an aligned table of the arguments and their values
+            print("Arguments:")
+            for arg in asdict(self):
+                print(f"{arg:15} {getattr(self, arg)}")
+            print()
+
+    def get_save_folder(self):
+        folder_path = f"{self.save_folder}learned_{self.learned}/planted_{self.planted}/form_{self.form}/trial"
+        for short, arg in (
+            ("n", "n"),
+            ("d", "d"),
+            ("w", "optw"),
+            ("X", "optx"),
+            ("stdev", "sigma"),
+            ("sample", "sample"),
+        ):
+            folder_path += f"__{short}{getattr(self, arg)}"
+
+        return folder_path + "/"
+
+
+def get_parser():
+    parser = argparse.ArgumentParser(description="phase transition")
+
+    # the involved models and optimization form
+    parser.add_argument(
+        "planted",
+        type=str,
+        choices=ALL_PLANTED,
+        help="planted model",
+    )
+    parser.add_argument(
+        "learned",
+        type=str,
+        choices=ALL_LEARNED,
+        help="learned model for recovery",
+    )
+    parser.add_argument(
+        "form",
+        type=str,
+        choices=ALL_FORMS,
+        help="whether to formulate optimization as convex program, GD (neural network training), or min norm (relaxed)",
+    )
+
+    # experiment parameters
+    parser.add_argument("--n", type=int, help="number of sample")
+    parser.add_argument("--d", type=int, help="number of dimension")
+    parser.add_argument("--k", type=int, help="number of planted neurons")
+    parser.add_argument("--sigma", type=float, help="noise")
+    parser.add_argument("--tol", type=float, help="call it perfect recovery below this threshold")
+    parser.add_argument(
+        "--optw",
+        type=int,
+        choices=[0, 1, 2, 3],
+        help="choice of W distribution. (0) Gaussian (d, k) | (1) smallest PCs of X | (2) select first k features | (3) neuron 1 is Gaussian, neuron 2 = - neuron 1",
+    )
+    parser.add_argument(
+        "--optx",
+        type=int,
+        choices=[0, 1, 2, 3],
+        help="choice of X distribution. 0=Gaussian, 1=Gaussian cubed, 2=whitened Gaussian, 3=whitened Gaussian cubed",
+    )
+
+    parser.add_argument("--seed", type=int, help="random seed")
+    parser.add_argument("--sample", type=int, help="number of trials per (n, d) pair")
+
+    # plotting and meta level
+    parser.add_argument("-q", "--quiet", action="store_true", help="whether to suppress error bars")
+    parser.add_argument(
+        "-s",
+        "--save_details",
+        action="store_true",
+        help="whether to save training results",
+    )
+    parser.add_argument("-f", "--save_folder", type=str, help="path to save results")
+    parser.add_argument("--cmap", type=str, help="the matplotlib cmap to use")
+
+    # nonconvex training
+    parser.add_argument("--num_epoch", type=int, help="number of training epochs")
+    parser.add_argument("--beta", type=float, help="weight decay parameter")
+    parser.add_argument("--lr", type=float, help="learning rate")
+    parser.add_argument(
+        "--activation",
+        type=str,
+        choices=["relu", "sigmoid", "tanh", "gelu"],
+        help="activation function",
+    )
+
+    return parser
+
+
+def check_folder(path):
+    if not os.path.exists(path):
+        print("Creating folder: {}".format(path))
+        os.makedirs(path)
+
+
+def save_results(records: dict, save_folder=Args.save_folder):
+    check_folder(save_folder)
+    for prop, value in records.items():
+        save_path = save_folder + prop
+        np.save(save_path, value)
+        print("Saved " + prop + " to " + save_path + ".npy")
