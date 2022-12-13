@@ -28,7 +28,7 @@ def main():
 
     check_folder(save_folder)
 
-    records = defaultdict(lambda: np.empty((len(nvec), len(dvec), args.sample)))
+    records = defaultdict(lambda: np.full((len(nvec), len(dvec), args.sample), np.nan))
     runtimes = np.zeros(len(nvec))
 
     n_iter = enumerate(nvec)

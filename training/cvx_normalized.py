@@ -9,10 +9,13 @@ from utils import Args
 class ConvexReLUNormalized(ConvexProgram):
     """
     Implement the convex optimization problem in cvxpy.
-    If "exact" is True, this is an implementation of Equation 16 (top of page 9).
-    Otherwise, this implements the approximate form in Equation 212.
+    form    | equation
+    --------+---------
+    exact   | 16 (top of page 9)
+    approx  | 212 (bottom of page 9)
+    relaxed | 17 (middle of page 9)
+
     This is equivalent to the regularized training of a two-layer relu network with normalization.
-    If form is "relaxed", Implement Equation 17 in the paper (middle of page 9).
     """
 
     def __init__(self, form, X, y, D_mat, beta):
@@ -46,6 +49,25 @@ class ConvexReLUNormalized(ConvexProgram):
             return norm
 
     def get_constraints(self):
+        constraints = []
+
+        # not included to the paper, but in their code.
+        # set all the weights to zero for the singular vectors that are not used
+        if not np.all(self.mask):
+            constraints += [self.W_pos.T[~self.mask] == 0]
+            if self.W_neg is not None:
+                constraints += [self.W_neg.T[~self.mask] == 0]
+
+        if self.form in ("exact", "relaxed"):
+            constraints += [self.residual == 0]
+
+        if self.form == "relaxed":
+            return constraints
+
+        # p indexes the arrangement patterns
+        # n indexes the data points
+        # d indexes the features
+        # m = d indexes the singular vectors
         C = np.einsum(
             "np, nd, pmd, pm -> npm",
             2 * self.D_mat - 1,
@@ -59,14 +81,6 @@ class ConvexReLUNormalized(ConvexProgram):
         constraints = [C @ self.W_pos.T[self.mask] >= 0]
         if self.W_neg is not None:
             constraints += [C @ self.W_neg.T[self.mask] >= 0]
-
-        if not np.all(self.mask):
-            constraints += [self.W_pos.T[~self.mask] == 0]
-            if self.W_neg is not None:
-                constraints += [self.W_neg.T[~self.mask] == 0]
-
-        if self.form == "exact":
-            constraints += [self.residual == 0]
 
         return constraints
 
