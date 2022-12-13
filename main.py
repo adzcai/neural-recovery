@@ -5,7 +5,7 @@ from collections import defaultdict
 from tqdm import tqdm
 
 from utils import Args, check_folder, save_results
-from training.ncvx_network_train import train_model
+from training.noncvx_network_train import train_model
 from plot import plot_results
 from solve_problem import solve_problem
 

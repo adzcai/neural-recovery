@@ -1,8 +1,8 @@
 from typing import Tuple
 
 from training.common import Args, generate_data, get_arrangement_patterns
-from training.skip import ConvexReLU
-from training.normalized import ConvexReLUNormalized
+from training.cvx_skip import ConvexReLU
+from training.cvx_normalized import ConvexReLUNormalized
 
 
 def solve_problem(n: int, d: int, args: Args) -> Tuple[dict, dict]:

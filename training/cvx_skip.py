@@ -1,7 +1,7 @@
 import numpy as np
 import cvxpy as cp
 
-from training.convex_program import ConvexProgram
+from training.cvx_base import ConvexProgram
 from utils import Args
 
 

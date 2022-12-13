@@ -2,7 +2,7 @@ import numpy as np
 import cvxpy as cp
 
 from training.common import idx_of_planted_in_patterns, mult_diag
-from training.convex_program import ConvexProgram
+from training.cvx_base import ConvexProgram
 from utils import Args
 
 
@@ -94,7 +94,8 @@ class ConvexReLUNormalized(ConvexProgram):
     ):
         """
         Measures the distance to the planted neurons' weights.
-        Mathematically, we express the jth planted neuron in terms of the singular values of Dj @ X,
+        Mathematically, we express the jth planted neuron in terms of
+        the singular values of the subset of X given by Dj @ X,
         where Dj is the corresponding diagonal arrangement pattern,
         and then compare the learned neurons with this expression.
         """
@@ -113,9 +114,9 @@ class ConvexReLUNormalized(ConvexProgram):
         W_rotated = np.einsum("kdf, fk -> dk", Vh_scaled, W_true, optimize=True)
         W_rotated /= np.linalg.norm(W_rotated, axis=0)
 
-        diff = self.W_pos[:, s] - W_rotated  # all have shape (d, k)
+        diff = self.W_pos.value[:, s] - W_rotated  # all have shape (d, k)
         if self.W_neg is not None:
-            diff -= self.W_neg[:, s]
+            diff -= self.W_neg.value[:, s]
 
         dis_abs = np.linalg.norm(diff, ord="fro")
         recovery = np.allclose(diff, 0, atol=tol)

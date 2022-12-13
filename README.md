@@ -91,11 +91,11 @@ The codebase is structured as follows:
 - `plot.py`: for plotting data, as well as a CLI that plots results from a NumPy file containing a numpy array of shape (n, d, sample).
 - `training/`: training utilities for solving the actual optimization problems.
     - `common.py`: helpers for formulating the convex optimization problems.
-    - `convex_program.py`: the abstract superclass for implementing the convex problems.
-    - `ncvx_network_train.py`: nonconvex neural network training code with PyTorch.
-    - `networks.py`: simple neural networks implemented in PyTorch.
-    - `normalized.py`: the implementation for the convex formulation of a ReLU network with batch normalization.
-    - `skip.py`: the implementation for the convex formulation of a ReLU network with a skip connection. Can also be used for a plain network with no skip connection.
+    - `cvx_base.py`: the abstract superclass for implementing the convex problems.
+    - `cvx_normalized.py`: the implementation for the convex formulation of a ReLU network with batch normalization.
+    - `cvx_skip.py`: the implementation for the convex formulation of a ReLU network with a skip connection. Can also be used for a plain network with no skip connection.
+    - `noncvx_networks.py`: simple neural networks implemented in PyTorch.
+    - `noncvx_network_train.py`: nonconvex neural network training code with PyTorch.
 
 # Maintainers
 
