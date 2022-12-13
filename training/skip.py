@@ -30,7 +30,6 @@ class ConvexReLU(ConvexProgram):
         super().__init__(form, X, y, D_mat, beta)
 
         d = X.shape[1]
-        p = D_mat.shape[1]
 
         self.w_skip = cp.Variable(d, "w_skip") if skip else None
 
@@ -52,7 +51,7 @@ class ConvexReLU(ConvexProgram):
         if self.form == "relaxed":
             return [self.residual == 0]
 
-        signed_patterns = 2 * self.D_mat - 1
+        signed_patterns = 2 * self.D_mat - 1  # (n, p)
         constraints = [cp.multiply(signed_patterns, self.X @ self.W_pos) >= 0]
         if self.W_neg is not None:
             constraints += [cp.multiply(signed_patterns, self.X @ self.W_neg) >= 0]

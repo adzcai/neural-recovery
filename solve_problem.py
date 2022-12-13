@@ -33,13 +33,18 @@ def solve_problem(n: int, d: int, args: Args) -> Tuple[dict, dict]:
     metrics |= program.get_metrics(X, W, D_mat, ind, args.tol)
     # not supported by Mosek solver
     # metrics["num_iters"] = prob.solver_stats.num_iters
-    metrics["test_err"] = program.get_test_err(
-        n,
-        d,
-        cubic=args.cubic,
-        whiten=args.whiten,
-        planted=args.planted,
-        W_true=W,
+
+    metrics["test_err"] = (
+        program.get_test_err(
+            n,
+            d,
+            cubic=args.cubic,
+            whiten=args.whiten,
+            planted=args.planted,
+            W_true=W,
+        )
+        if n >= d
+        else None
     )
 
     return data, metrics

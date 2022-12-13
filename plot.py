@@ -12,8 +12,12 @@ def get_args():
     parser = argparse.ArgumentParser("Plot charts")
     parser.add_argument("path", type=str, help="Path to a Python file containing the data to plot")
     parser.add_argument("--cmap", type=str, default=Args.cmap, help="Colormap to use for plotting")
-    parser.add_argument("--show-boundary", action="store_true", help="Show the boundary of the phase transition")
-    parser.add_argument("--subplots", action="store_true", help="Plot each property in a separate subplot")
+    parser.add_argument(
+        "--show-boundary", action="store_true", help="Show the boundary of the phase transition"
+    )
+    parser.add_argument(
+        "--subplots", action="store_true", help="Plot each property in a separate subplot"
+    )
     args = parser.parse_args()
     return args
 
@@ -35,9 +39,11 @@ def plot_results(
 
     if save_folder is not None:
         check_folder(save_folder)
-    
+
     if subplots:
-        fig_all, (axes,) = plt.subplots(1, len(records), figsize=(5 * len(records), 5), squeeze=False)
+        fig_all, (axes,) = plt.subplots(
+            1, len(records), figsize=(5 * len(records), 5), squeeze=False
+        )
 
     for i, (prop, values) in enumerate(records.items()):
         if subplots:
@@ -79,4 +85,11 @@ if __name__ == "__main__":
     maxn, maxd, _ = data.shape
     nvec = np.arange(1, maxn + 1) * 10
     dvec = np.arange(1, maxd + 1) * 10
-    plot_results({path.name: data}, nvec, dvec, cmap=args.cmap, show_boundary=args.show_boundary, subplots=args.subplots)
+    plot_results(
+        {path.name: data},
+        nvec,
+        dvec,
+        cmap=args.cmap,
+        show_boundary=args.show_boundary,
+        subplots=args.subplots,
+    )

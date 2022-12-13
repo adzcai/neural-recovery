@@ -80,7 +80,7 @@ class ConvexProgram(ABC):
         X_test = generate_X(n, d, cubic=cubic, whiten=whiten)
         y_true = generate_y(
             X_test,
-            Variables(W_pos=W_true),
+            W_true,
             relu=planted != "linear",
             normalize=planted == "normalized",
         )

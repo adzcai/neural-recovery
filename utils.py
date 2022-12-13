@@ -38,7 +38,7 @@ class Args:
     save_folder: str = "./results/"
     cmap: str = "jet"
 
-    num_epoch: int = 400
+    epochs: int = 100
     lr: float = 2e-3
     beta: float = 1e-6
     activation: str = "relu"
@@ -147,7 +147,7 @@ def get_parser():
     parser.add_argument("--cmap", type=str, help="the matplotlib cmap to use")
 
     # nonconvex training
-    parser.add_argument("--num_epoch", type=int, help="number of training epochs")
+    parser.add_argument("--epochs", type=int, help="number of training epochs")
     parser.add_argument("--beta", type=float, help="weight decay parameter")
     parser.add_argument("--lr", type=float, help="learning rate")
     parser.add_argument(

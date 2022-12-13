@@ -48,7 +48,7 @@ def generate_data(n: int, d: int, args: Args, data: Optional[dict] = None, eps: 
     try:
         y = generate_y(
             X,
-            Variables(W_pos=W_true),
+            W_true,
             sigma=args.sigma,
             eps=eps,
             relu=args.planted != "linear",
@@ -66,7 +66,7 @@ def generate_data(n: int, d: int, args: Args, data: Optional[dict] = None, eps: 
     return X, W_true, y
 
 
-def generate_X(n, d, cubic=False, whiten=False):
+def generate_X(n, d, cubic=False, whiten=False) -> np.ndarray:
     """
     Generate an (n, d) design matrix X.
     See `get_parser` for the options for optx.
@@ -112,7 +112,7 @@ def generate_w(X, k, optw):
     return w
 
 
-def generate_y(X, weights: Variables, relu=False, normalize=False, sigma=0, eps: float = None):
+def generate_y(X, W_true: np.ndarray, relu=False, normalize=False, sigma=0, eps: float = None):
     """
     Generally uses the provided weights to calculate y from the given X and w.
     Also used to generate y from the data X and the weights w.
@@ -122,22 +122,12 @@ def generate_y(X, weights: Variables, relu=False, normalize=False, sigma=0, eps:
     :return: y (n)
     """
 
-    W_pos, W_neg, w_skip = weights
+    assert W_true.ndim == 2, f"{W_true.shape=} should be a 2D array."
 
-    assert W_pos.ndim == 2, f"{W_pos.shape=} should be a 2D array."
+    y = X @ W_true
 
-    if W_neg is not None:
-        if relu:
-            y = np.maximum(0, X @ W_pos) - np.maximum(0, X @ W_neg)
-        else:
-            y = X @ (
-                W_pos - W_neg
-            )  # this scenario should never occur but is implemented for completeness
-    else:
-        if relu:
-            y = np.maximum(0, X @ W_pos)
-        else:
-            y = X @ W_pos
+    if relu:
+        y = np.maximum(0, y)
 
     if normalize:
         norm_y = np.linalg.norm(y, axis=0)
@@ -147,9 +137,6 @@ def generate_y(X, weights: Variables, relu=False, normalize=False, sigma=0, eps:
         y /= norm_y
 
     y = np.sum(y, axis=1)
-
-    if w_skip is not None:
-        y += X @ w_skip
 
     if sigma > 0:  # add noise
         n = X.shape[0]

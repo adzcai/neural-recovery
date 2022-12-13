@@ -45,7 +45,7 @@ def main():
 
             for i in range(args.sample):
                 if args.form == "gd":
-                    data, metrics = train_model(n, d, args)
+                    data, metrics = train_model(n, d, i, args)
                 else:
                     data, metrics = solve_problem(n, d, args)
 

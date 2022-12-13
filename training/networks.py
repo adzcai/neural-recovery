@@ -66,21 +66,21 @@ class ReLUskip(nn.Module):
     """
 
     def __init__(self, m, n, d, act):
-        super(ReLUskip, self).__init__()
-        self.m, self.n, self.d = m, n, d
+        super().__init__()
 
-        self.W1 = nn.Linear(self.d, self.m, bias=False)
-        self.alpha = nn.Linear(self.m, 1, bias=False)
+        self.W_relu = nn.Linear(d, m, bias=False)
+        self.alpha_relu = nn.Linear(m, 1, bias=False)
 
         # skip connections
-        self.w0 = nn.Linear(self.d, 1, bias=False)
-        self.alpha0 = nn.Linear(1, 1, bias=False)
+        self.w_skip = nn.Linear(d, 1, bias=False)
+        self.alpha_skip = nn.Linear(1, 1, bias=False)
 
         self.act = get_activation(act)
 
     def forward(self, X):
-        Xu = self.act(self.W1(X))
-        y = self.alpha(Xu) + self.alpha0(self.w0(X))
+        out_relu = self.alpha_relu(self.act(self.W_relu(X)))
+        out_skip = self.alpha_skip(self.w_skip(X))
+        y = out_relu + out_skip
         return y
 
     def name(self):

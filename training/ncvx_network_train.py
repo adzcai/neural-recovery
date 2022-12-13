@@ -3,6 +3,7 @@ import numpy as np
 import torch
 from torch.nn import Module
 from torch import Tensor
+from tqdm import tqdm
 
 from training.networks import ReLUnormal, ReLUskip
 from training.common import (
@@ -10,21 +11,21 @@ from training.common import (
     generate_data,
     generate_y,
 )
+from utils import Args
 
 
-def train_model(n, d, sample, args) -> dict:
-    sigma = args.sigma
+def train_model(n: int, d: int, sample: int, args: Args) -> dict:
     data, metrics = {}, {}
 
     # training data
-    X, w, y = generate_data(n, d, args, eps=1e-10)
+    Xtrain, W_true, ytrain = generate_data(n, d, args, data=data, eps=1e-10)
 
     # test data
-    Xtest = generate_X(n, d, args)
+    Xtest = generate_X(n, d, args.cubic, args.whiten)
     ytest = generate_y(
-        X,
-        Variables(W_pos=w),
-        sigma=sigma,
+        Xtest,
+        W_true,
+        sigma=args.sigma,
         eps=0,
         relu=args.planted != "linear",
         normalize=args.planted == "normalized",
@@ -33,36 +34,37 @@ def train_model(n, d, sample, args) -> dict:
     data["X_test"] = Xtest
     data["y_test"] = ytest
 
-    Xtrain, ytrain, Xtest, ytest = [torch.from_numpy(t) for t in (X, y, Xtest, ytest)]
+    Xtrain, ytrain, Xtest, ytest = [
+        torch.from_numpy(t).float() for t in (Xtrain, ytrain, Xtest, ytest)
+    ]
 
     m = n + 1
     if args.learned == "normalized":
-        model = ReLUnormal(m=m, n=n, d=d, act=args.act)
+        model = ReLUnormal(m=m, n=n, d=d, act=args.activation)
     else:
-        model = ReLUskip(m=m, n=n, d=d, act=args.act)
-    loss_train, loss_test = train_network(
+        model = ReLUskip(m, n, d, args.activation)
+
+    data["loss_train"], data["loss_test"] = train_network(
         model,
         Xtrain,
         ytrain,
         Xtest,
         ytest,
-        num_epochs=args.num_epoch,
+        num_epochs=args.epochs,
+        lr=args.lr,
+        beta=args.beta,
         verbose=not args.quiet,
     )
 
-    data["loss_train"] = loss_train
-    data["loss_test"] = loss_test
-
-    metrics["test_err"] = math.sqrt(loss_test[-1])
+    metrics["test_err"] = math.sqrt(data["loss_test"][-1])
 
     if args.learned == "skip":
         # compare the (merged) skip connection weights with the true weights
-        w0 = model.w0.weight.detach().numpy()
-        alpha0 = model.alpha0.weight.item()
-
-        metrics["dis_abs"] = np.linalg.norm(alpha0 * w0.T - w, ord=2)
+        w_skip = model.w_skip.weight.detach().numpy()
+        w_skip = model.alpha_skip.weight.item() * w_skip.T
+        metrics["dis_abs"] = np.linalg.norm(w_skip - W_true)
         # draft below, but removed, since the additional second layer might cause some interference
-        # data["recovery"] = np.allclose(alpha0 * w0.T, w, atol=1e-4) and np.allclose((alpha @ W1).reshape(-1), 0, atol=1e-4)
+        # metrics["recovery"] = np.allclose(w_skip, W_true, atol=args.tol) # and np.allclose((alpha @ W1).reshape(-1), 0, atol=args.tol)
 
     if args.save_details:
         torch.save(
@@ -84,47 +86,47 @@ def train_network(
     lr=None,
     beta=None,
 ):
-    if verbose:
-        print("---------------------------training---------------------------")
+    """
+    Full-batch gradient descent.
+    """
+
+    # reshape y so that subtraction works properly and doesn't get broadcasted
+    if ytrain.ndim == 1:
+        ytrain = ytrain[:, None]
+    if ytest.ndim == 1:
+        ytest = ytest[:, None]
+
+    loss_train, loss_test = np.zeros((2, 1 + num_epochs))
 
     # get initialization statistics
-    y_predict = model(Xtrain)
-    loss = torch.linalg.norm(y_predict - ytrain) ** 2
-    train_err_init = loss.item()
     with torch.no_grad():
-        test_err_init = torch.linalg.norm(model(Xtest) - ytest) ** 2
-        test_err_init = test_err_init.item()
+        loss_init = ((model(Xtrain) - ytrain) ** 2).sum()
+        test_err_init = ((model(Xtest) - ytest) ** 2).sum()
 
+        loss_train[0] = loss_init.item()
+        loss_test[0] = test_err_init.item()
+
+    epoch_iter = range(1, num_epochs + 1)
     if verbose:
-        print(
-            "Epoch [{}/{}], Train error: {}, Test error: {}".format(
-                0, num_epochs, train_err_init, test_err_init
-            )
-        )
+        epoch_iter = tqdm(epoch_iter, total=num_epochs, leave=None)
 
-    optimizer = torch.optim.AdamW(model.parameters(), lr=lr, weight_decay=beta)
-
-    loss_train, loss_test = np.zeros(2, num_epochs)
-    for epoch in range(num_epochs):
+    for epoch in epoch_iter:
+        optimizer = torch.optim.AdamW(model.parameters(), lr=lr, weight_decay=beta)
         optimizer.zero_grad()
-        y_predict = model(Xtrain)
-        loss = torch.linalg.norm(y_predict - ytrain) ** 2
+        loss = ((model(Xtrain) - ytrain) ** 2).sum()
         loss.backward()
         optimizer.step()
-
         loss_train[epoch] = loss.item()
+
         with torch.no_grad():
-            test_err = torch.linalg.norm(model(Xtest) - ytest) ** 2
+            test_err = ((model(Xtest) - ytest) ** 2).sum()
             loss_test[epoch] = test_err.item()
 
         if verbose:
-            print(
-                "Epoch [{}/{}], Train error: {}, Test error: {}".format(
-                    epoch + 1, num_epochs, loss_train[epoch], loss_test[epoch]
+            epoch_iter.set_description(
+                "Train error: {:.3f}, Test error: {:.3f}".format(
+                    loss_train[epoch], loss_test[epoch]
                 )
             )
-
-    loss_train = np.concatenate([np.array([train_err_init]), loss_train])
-    loss_test = np.concatenate([np.array([test_err_init]), loss_test])
 
     return loss_train, loss_test

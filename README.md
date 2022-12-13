@@ -86,9 +86,16 @@ python ncvx_train_skip.py --n 400 --d 100 --sample 10 --sigma 0 --optw 0 --optx 
 
 The codebase is structured as follows:
 
-- `common.py`: helpers for formulating the convex optimization problems.
-- `cvx_problems.py`: the convex optimization problems, implemented with CVXPY.
 - `main.py`: the main CLI.
+- `nic.py`: Neural Isometry Condition implementations.
+- `plot.py`: for plotting data, as well as a CLI that plots results from a NumPy file containing a numpy array of shape (n, d, sample).
+- `training/`: training utilities for solving the actual optimization problems.
+    - `common.py`: helpers for formulating the convex optimization problems.
+    - `convex_program.py`: the abstract superclass for implementing the convex problems.
+    - `ncvx_network_train.py`: nonconvex neural network training code with PyTorch.
+    - `networks.py`: simple neural networks implemented in PyTorch.
+    - `normalized.py`: the implementation for the convex formulation of a ReLU network with batch normalization.
+    - `skip.py`: the implementation for the convex formulation of a ReLU network with a skip connection. Can also be used for a plain network with no skip connection.
 
 # Maintainers
 
