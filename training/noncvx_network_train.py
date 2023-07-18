@@ -5,7 +5,7 @@ from torch.nn import Module
 from torch import Tensor
 from tqdm import tqdm
 
-from training.networks import ReLUnormal, ReLUskip
+from training.networks import ReLUplain, ReLUnormal, ReLUskip, activations
 from training.common import (
     generate_X,
     generate_data,
@@ -38,11 +38,16 @@ def train_model(n: int, d: int, sample: int, args: Args) -> dict:
         torch.from_numpy(t).float() for t in (Xtrain, ytrain, Xtest, ytest)
     ]
 
-    m = n + 1
+    m = args.m if args.m is not None else n + 1
+    act = activations[args.activation]
     if args.learned == "normalized":
-        model = ReLUnormal(m=m, n=n, d=d, act=args.activation)
+        model = ReLUnormal(m, n, d, act)
+    elif args.learned == "skip":
+        model = ReLUskip(m, n, d, act)
+    elif args.learned == "plain":
+        model = ReLUplain(m, n, d, act)
     else:
-        model = ReLUskip(m, n, d, args.activation)
+        raise NotImplementedError
 
     data["loss_train"], data["loss_test"] = train_network(
         model,
@@ -63,13 +68,25 @@ def train_model(n: int, d: int, sample: int, args: Args) -> dict:
         w_skip = model.w_skip.weight.detach().numpy()
         w_skip = model.alpha_skip.weight.item() * w_skip.T
         metrics["dis_abs"] = np.linalg.norm(w_skip - W_true)
+        metrics["cos_sim"] = (w_skip.flatten() @ W_true.flatten()) / (
+            np.linalg.norm(w_skip) * np.linalg.norm(W_true)
+        )
+
         # draft below, but removed, since the additional second layer might cause some interference
         # metrics["recovery"] = np.allclose(w_skip, W_true, atol=args.tol) # and np.allclose((alpha @ W1).reshape(-1), 0, atol=args.tol)
+    elif args.learned == "plain":
+        w = model.W_relu.weight.detach().numpy()
+        alpha = model.alpha_relu.weight.item()
+
+    W_relu = model.W_relu.weight.detach().numpy()  # (m, d)
+    alpha_relu = model.alpha_relu.weight.detach().numpy()  # (1, m)
+    metrics["other_norm"] = np.linalg.norm(W_relu * alpha_relu.T, ord="fro")
 
     if args.save_details:
         torch.save(
             model.state_dict(),
-            args.get_save_folder() + f"weights__n{n}__d{d}__sample{sample}.pth",
+            args.get_save_folder()
+            + f"weights__n{n}__d{d}__sample{sample}__act{args.activation}.pth",
         )
 
     return data, metrics

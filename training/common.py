@@ -196,7 +196,7 @@ def idx_of_planted_in_patterns(ind, k=1, mask: int = None):
     """
     indices = np.nonzero(ind == np.arange(k)[:, None])[1]
     if mask is not None:
-        return indices == np.arange(mask)
+        return np.isin(np.arange(mask), indices)
     else:
         return indices
 

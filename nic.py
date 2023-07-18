@@ -5,6 +5,7 @@ Neural Isometry Conditions proposed in the paper.
 import argparse
 import numpy as np
 from tqdm import tqdm
+from plot import plot_results
 
 from training.common import (
     generate_X,
@@ -12,7 +13,6 @@ from training.common import (
     get_arrangement_patterns,
     idx_of_planted_in_patterns,
     mult_diag,
-    plot_results,
 )
 
 
@@ -85,9 +85,9 @@ def NIC_1(X, w, D_mat, ind):
 
     p = D_mat.shape[1]
     s = idx_of_planted_in_patterns(ind, mask=p)
-    X_scaled = mult_diag(D_mat, X)
-    rhs = np.linalg.solve(X.T @ X_scaled[s], w.T)
-    conditions = np.einsum("pnd, knf, kf -> pd", X_scaled[~s], X_scaled[s], rhs, optimize=True)
+    X = mult_diag(D_mat, X)  # (p, n, d)
+    pseudoinv = np.linalg.pinv(X[s])
+    conditions = np.einsum("pnd, kfn, fk -> pd", X[~s], pseudoinv, w, optimize=True)
     conditions = np.linalg.norm(conditions, axis=1)
     return np.all(conditions < 1), conditions
 
@@ -117,7 +117,6 @@ def NIC_k(X, w, D_mat, ind):
     is to learn the planted neurons and set all others to zero.
     """
 
-    n, d = X.shape
     p = D_mat.shape[1]
     k = w.shape[1]
 
@@ -174,6 +173,8 @@ def plot_condition():
     parser.add_argument("--optw", type=int, default=0)
     parser.add_argument("--samples", type=int, default=5)
     args = parser.parse_args()
+
+    print(args)
 
     nvec = np.arange(10, args.n + 1, 10)
     dvec = np.arange(10, args.d + 1, 10)

@@ -8,14 +8,6 @@ from utils import Args
 class ConvexReLU(ConvexProgram):
     """
     Convex formulation of either plain relu network or a network with skip connection when skip is True.
-
-    form    | skip |  equation and page number in the paper
-    --------+------+---------------------------------------
-    approx  |  y   |  211 (bottom of p. 57)
-    approx  |  n   |  211 (skip connection removed)
-    exact   |  y   |  6 (top of p. 5), with the w_0 norm added (we think this was a typo)
-    exact   |  n   |  11 (top of p. 8)
-    relaxed |  y   |  15 (bottom of p. 8).
     """
 
     def __init__(
@@ -63,9 +55,10 @@ class ConvexReLU(ConvexProgram):
         """
         Constrain this to be equal to y, or close to it (in the approximate case).
         """
-        y_hat = cp.sum(cp.multiply(self.D_mat, (self.X @ self.W_pos)), axis=1)
+        W = self.W_pos
         if self.W_neg is not None:
-            y_hat -= cp.sum(cp.multiply(self.D_mat, (self.X @ self.W_neg)), axis=1)
+            W -= self.W_neg
+        y_hat = cp.sum(cp.multiply(self.D_mat, (self.X @ W)), axis=1)
         if self.w_skip is not None:
             y_hat += self.X @ self.w_skip
         return y_hat
@@ -79,28 +72,6 @@ class ConvexReLU(ConvexProgram):
             y_hat += X @ self.w_skip.value
         return y_hat
 
-    def get_metrics_plain(self, W_true: np.ndarray):
-        dis_abs = 0  # np.linalg.norm(W_true - W_pos)  # recovery error of linear weights
-
-        recovery = True
-        for neuron in W_true.T:
-            recovery = recovery and np.any(
-                [
-                    np.allclose(neuron / np.linalg.norm(neuron), w_pos)
-                    for w_pos in self.W_pos.value.T
-                ]
-            )
-            # recovery = recovery and np.any([np.allclose(0, w_neg) for w_neg in W_neg.T])
-
-        # print the highest 10 norms of columns of W_pos
-        # print("w_true", W_true)
-        # print("y", y_true)
-        # print("W_pos norms", np.sort(np.linalg.norm(W_pos, axis=0))[-10:])
-
-        return {
-            "dis_abs": dis_abs,
-            "recovery": recovery,
-        }
 
     def get_metrics(
         self, X: np.ndarray, W_true: np.ndarray, D_mat: np.ndarray, ind: np.ndarray, tol=Args.tol
@@ -110,6 +81,16 @@ class ConvexReLU(ConvexProgram):
         the learned weights w_skip are close to w,
         and all of the learned weights (for the relu) are close to 0.
         """
+        metrics = super().get_metrics(X, W_true, D_mat, ind, tol)
+
+        if self.w_skip is None:
+            assert W_true.shape[1] == 1, "Only supported for 1 planted neuron"
+            diff = W_true.flatten() - self.W_pos.value.sum(axis=1)
+
+            return {
+                "dis_abs": np.linalg.norm(diff),
+                "recovery": diff < tol,
+            }
 
         w_true = W_true.flatten()
         dis_abs = np.linalg.norm(w_true - self.w_skip.value)  # recovery error of linear weights
@@ -120,7 +101,12 @@ class ConvexReLU(ConvexProgram):
         if self.W_neg is not None:
             recovery = recovery and np.allclose(self.W_neg.value, 0, atol=tol)
 
-        return {
+        cos_sim = (w_true @ self.w_skip.value) / (
+            np.linalg.norm(w_true) * np.linalg.norm(self.w_skip.value)
+        )
+
+        return metrics | {
             "dis_abs": dis_abs,
             "recovery": recovery,
+            "cos_sim": cos_sim,
         }

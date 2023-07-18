@@ -22,6 +22,8 @@ def solve_problem(n: int, d: int, args: Args) -> Tuple[dict, dict]:
         program = ConvexReLU(args.form, X, y, D_mat, beta=args.beta, skip=skip)
     elif args.learned == "normalized":
         program = ConvexReLUNormalized(args.form, X, y, D_mat, beta=args.beta)
+    else:
+        raise ValueError(f"Unknown learned model: {args.learned}")
 
     program.solve()  # SOLVE THE PROBLEM
 
@@ -34,7 +36,7 @@ def solve_problem(n: int, d: int, args: Args) -> Tuple[dict, dict]:
     # not supported by Mosek solver
     # metrics["num_iters"] = prob.solver_stats.num_iters
 
-    metrics["test_err"] = (
+    metrics["test_err"], metrics["test_dis"] = (
         program.get_test_err(
             n,
             d,
@@ -44,7 +46,7 @@ def solve_problem(n: int, d: int, args: Args) -> Tuple[dict, dict]:
             W_true=W,
         )
         if n >= d
-        else None
+        else (None, None)
     )
 
     return data, metrics

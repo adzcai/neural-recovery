@@ -6,7 +6,6 @@ Suppose that $\mathbf{X}\in \mathbb{R}^{n\times d}$ and $\mathbf{y}\in \mathbb{R
 
 ## ReLU networks
 
-  
 $$
 f^\mathrm{ReLU}(\mathbf{X};\Theta) = (\mathbf{X}{\mathbf{W}}^{(1)})_+ \mathbf{w}^{(2)},
 $$
@@ -15,9 +14,8 @@ where $\Theta = (\mathbf{W}^{(1)},\mathbf{w}^{(2)})$, $\mathbf{W}^{(1)} \in \mat
 
 ## ReLU networks with skip connections
 
-  
 $$
-f^\mathrm{ReLU}(\mathbf{X};\Theta) =\mathbf{X}\mathbf{w}^{(1)}_{1} w^{(2)}_{1}+\sum_{i=2}^m (\mathbf{X}\mathbf{w}^{(1)}_{i})_+ w^{(2)}_{i},
+f^\mathrm{ReLU-skip}(\mathbf{X};\Theta) =\mathbf{X}\mathbf{w}^{(1)}_{1} w^{(2)}_{1}+\sum_{i=2}^m (\mathbf{X}\mathbf{w}^{(1)}_{i})_+ w^{(2)}_{i},
 $$
 
 where $\Theta = (\mathbf{W}^{(1)},\mathbf{w}^{(2)})$, $\mathbf{W}^{(1)}\in \mathbb{R}^{d\times m}$ and $\mathbf{w}^{(2)}\in \mathbb{R}^{m}$.
@@ -25,7 +23,7 @@ where $\Theta = (\mathbf{W}^{(1)},\mathbf{w}^{(2)})$, $\mathbf{W}^{(1)}\in \math
 ## ReLU networks with batch normalization
 
 $$
-f^\mathrm{ReLU}(\mathbf{X};\Theta) =\sum_{i=1}^m \operatorname{NM}_{\alpha_i}((\mathbf{X}\mathbf{w}^{(1)}_{i})_+)w^{(2)}_{i},
+f^\mathrm{ReLU-norm}(\mathbf{X};\Theta) =\sum_{i=1}^m \operatorname{NM}_{\alpha_i}((\mathbf{X}\mathbf{w}^{(1)}_{i})_+)w^{(2)}_{i},
 $$
 
 where $\Theta = (\mathbf{W}^{(1)},\mathbf{w}^{(2)},\mathbf{\alpha})$ and the normalization operation $\operatorname{NM}_\alpha(\mathbf{v})$ is defined by
@@ -45,7 +43,7 @@ $$
 When $\beta\to 0$, the optimal solution of the above problem solves the following minimal norm problem
 
 $$
-    \min_{\Theta} R(\Theta), \text{ s.t. } f(\mathbf{X};\Theta)=\mathbf{y}.
+\min_{\Theta} R(\Theta), \text{ s.t. } f(\mathbf{X};\Theta)=\mathbf{y}.
 $$
 
 We include code to solve convex optimization formulations of the minimal norm problem and to train neural networks discussed in the paper, respectively. We also include code to plot the phase transition graphs shown in the paper. 
@@ -58,29 +56,56 @@ When solving convex programs, [CVXPY](https://www.cvxpy.org/install/index.html) 
 
 When training neural networks discussed in the paper, [PyTorch](https://pytorch.org/get-started/locally/) (version>=1.10.0) is needed.
 
-# Usage
+# Usage and reproducing figures
 
-Compute the recovery rate of the planted linear neuron by solving the minimal norm problem for ReLU networks with skip connections over 5 independent trials. 
-```bash
-python rec_rate_skip.py --n 400 --d 100 --sample 5 --sigma 0 --optw 0 --optx 0
-```
+## Equations
 
-Compute the absolute distance by solving the convex programs over 5 independent trials. 
-```bash
-# minimal norm problem
-python minnrm_skip.py --n 400 --d 100 --sample 5 --sigma 0 --optw 0 --optx 0
+| Learned model | Equation  | Formulation                   |
+| ------------- | --------- | ----------------------------- |
+| ReLU          | exact     | 11 (top of p. 8)              |
+| ReLU          | approx    | 211 (skip connection removed) |
+| ReLU-skip     | exact     | 6 (top of p. 5)*              |
+| ReLU-skip     | nonconvex | 9 (bottom of p. 7)            |
+| ReLU-skip     | relaxed   | 15 (bottom of p. 8)           |
+| ReLU-skip     | approx    | 211 (bottom of p. 57)         |
+| ReLU-norm     | exact     | 16 (top of page 9)            |
+| ReLU-norm     | relaxed   | 17 (middle of page 9)         |
+| ReLU-norm     | approx    | 212 (bottom of page 9)        |
 
-# convex training problem
-python cvx_train_skip.py --n 400 --d 100 --sample 5 --sigma 0 --optw 0 --optx 0
-```
+*We implement this with the w_0 norm added to the objective function. We suspect this was a typo in the paper.
 
-Compute the test distance by training ReLU networks with skip connections over 10 independent trials. 
-```bash
-python ncvx_train_skip.py --n 400 --d 100 --sample 10 --sigma 0 --optw 0 --optx 0
-```
+## Training figures
 
-- You can change `--save_details`, `--save_folder`, `--seed` accordingly. 
-- For ReLU networks with normalization layer, you can also set the number of planted neurons by changing `--neu`. Details about the supported types of planted neuron and data matrix can be found in the comments of the code.
+| Figure  | Planted model | Equation | Metric            | Command (after `python main.py`)                                           | Image |
+| ------- | ------------- | -------- | ----------------- | -------------------------------------------------------------------------- | ----- |
+| 2       | linear        | 6        | test distance     | `linear skip exact`                                                        | ![](./results/learned_skip/planted_linear/form_exact/trial__n100__d50__w1__k1__X0__stdev0.0__sample5/test_err.png) |
+| 4a      | linear        | 15       | recovery          | `linear skip relaxed`                                                      | ![](./results/learned_skip/planted_linear/form_relaxed/trial__n100__d50__w1__k1__X0__stdev0.0__sample5/recovery.png) |
+| 4b      | linear        | 6        | recovery          | `linear skip exact`                                                        | ![](./results/learned_skip/planted_linear/form_exact/trial__n100__d50__w1__k1__X0__stdev0.0__sample5/recovery.png) |
+| 5a,5b   | ReLU-norm     | 17       | recovery          | `--k {2,3} normalized normalized relaxed`                                  | ![](./results/learned_normalized/planted_normalized/form_relaxed/trial__n100__d50__w2__k2__X0__stdev0.0__sample5/recovery.png) ![](./results/learned_normalized/planted_normalized/form_relaxed/trial__n100__d50__w2__k3__X0__stdev0.0__sample5/recovery.png) |
+| 6       | linear        | 15       | recovery          | `--optx {0,1,2,3} --optw 0 linear skip relaxed`                            | ![](./results/learned_skip/planted_linear/form_relaxed/trial__n100__d50__w0__k1__X0__stdev0.0__sample5/recovery.png) ![](./results/learned_skip/planted_linear/form_relaxed/trial__n100__d50__w0__k1__X1__stdev0.0__sample5/recovery.png) ![](./results/learned_skip/planted_linear/form_relaxed/trial__n100__d50__w0__k1__X2__stdev0.0__sample5/recovery.png) ![](./results/learned_skip/planted_linear/form_relaxed/trial__n100__d50__w0__k1__X3__stdev0.0__sample5/recovery.png) |
+| 7       | linear        | 15       | weight distance   | `--sigma {0,0.05,0.1,0.2} linear skip relaxed`                             | ![](./results/learned_skip/planted_linear/form_relaxed/trial__n100__d50__w1__k1__X0__stdev0.0__sample5/dis_abs.png) ![](./results/learned_skip/planted_linear/form_relaxed/trial__n100__d50__w1__k1__X0__stdev0.05__sample5/dis_abs.png) ![](./results/learned_skip/planted_linear/form_relaxed/trial__n100__d50__w1__k1__X0__stdev0.1__sample5/dis_abs.png) ![](./results/learned_skip/planted_linear/form_relaxed/trial__n100__d50__w1__k1__X0__stdev0.2__sample5/dis_abs.png) |
+| 8       | linear        | 9        | test error        | `--sigma {0,0.05,0.1,0.2} linear skip gd`                                  | ![](./results/learned_skip/planted_linear/form_gd/trial__n100__d50__w1__k1__X0__stdev0.0__sample5/test_err.png) ![](./results/learned_skip/planted_linear/form_gd/trial__n100__d50__w1__k1__X0__stdev0.05__sample5/test_err.png) ![](./results/learned_skip/planted_linear/form_gd/trial__n100__d50__w1__k1__X0__stdev0.1__sample5/test_err.png) ![](./results/learned_skip/planted_linear/form_gd/trial__n100__d50__w1__k1__X0__stdev0.2__sample5/test_err.png) |
+| 9       | ReLU-norm     | 17       | weight distance   | `--sigma {0,0.05,0.1,0.2} --k 2 --optw 3 normalized normalized relaxed`    | ![](./results/learned_normalized/planted_normalized/form_relaxed/trial__n100__d50__w3__k2__X0__stdev0.0__sample5/dis_abs.png) ![](./results/learned_normalized/planted_normalized/form_relaxed/trial__n100__d50__w3__k2__X0__stdev0.05__sample5/dis_abs.png) ![](./results/learned_normalized/planted_normalized/form_relaxed/trial__n100__d50__w3__k2__X0__stdev0.1__sample5/dis_abs.png) ![](./results/learned_normalized/planted_normalized/form_relaxed/trial__n100__d50__w3__k2__X0__stdev0.2__sample5/dis_abs.png) |
+| 18      | linear        |          | recovery          | `--optx {0,1,2,3} linear skip relaxed`                                     |
+| 19      | linear        |          | test distance     | `--sigma {0,0.05,0.1,0.2} linear skip relaxed`                             |
+| 20      | linear        |          | weight distance   | `--sigma {0,0.05,0.1,0.2} linear skip relaxed`                             |
+| 21      | linear        |          | test distance     | `--sigma {0,0.05,0.1,0.2} linear skip relaxed`                             |
+| 22*     | ReLU-norm     |          | recovery          | `normalized normalized relaxed`                                            |
+| 23*     | ReLU-norm     |          | weight distance   | `--sigma {0,0.05,0.1,0.2} normalized normalized relaxed`                   |
+| 24*     | ReLU-norm     |          | weight distance   | `--sigma {0,0.05,0.1,0.2} normalized normalized approx`                    |
+| 25*     | ReLU-norm     |          | test error        | `--sigma {0,0.05,0.1,0.2} normalized normalized gd`                        |
+| 26*     | ReLU-norm     |          | recovery          | `--k {2,3} --optw {2,3} normalized normalized relaxed`                     |
+| 27*     | ReLU-norm     |          | weight distance   | `--sigma {0,0.05,0.1,0.2} --k 2 --optw 0 normalized normalized relaxed`    |
+| 28*     | ReLU-norm     |          | weight distance   | `--sigma {0,0.05,0.1,0.2} --k 2 --optw 2 normalized normalized relaxed`    |
+| 29*     | ReLU-norm     |          | weight distance   | `--sigma {0,0.05,0.1,0.2} --k 3 --optw 2 normalized normalized relaxed`    |
+| 30*     | ReLU-norm     |          | test error        | `--sigma {0,0.05,0.1,0.2} --k 2 --optw 3 normalized normalized gd`         |
+| 31*     | ReLU-norm     |          | test error        | `--sigma {0,0.05,0.1,0.2} --k 2 --optw 0 normalized normalized gd`         |
+| 32*     | ReLU-norm     |          | test error        | `--sigma {0,0.05,0.1,0.2} --k 2 --optw 0 normalized normalized gd`         |
+
+## Neural Isometry Condition figures
+
+| Figure | Condition  | Command (after `python nic.py`) |
+| 10     | NNIC-k      |
 
 # Codebase
 

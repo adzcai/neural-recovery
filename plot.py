@@ -18,6 +18,9 @@ def get_args():
     parser.add_argument(
         "--subplots", action="store_true", help="Plot each property in a separate subplot"
     )
+    parser.add_argument(
+        "--max_level", type=float, default=1, help="The maximum value of the contour plot"
+    )
     args = parser.parse_args()
     return args
 
@@ -27,6 +30,7 @@ def plot_results(
     nvec: np.ndarray,
     dvec: np.ndarray,
     cmap=Args.cmap,
+    max_level=1,
     show_boundary=False,
     save_folder: str = None,
     subplots=False,
@@ -60,7 +64,9 @@ def plot_results(
         # ax.set_yticks(dvec)
 
         grid = np.mean(values, axis=2).T
-        cs = ax.contourf(xgrid, ygrid, grid, levels=np.linspace(0, 1, 11), cmap=cmap, extend="both")
+        cs = ax.contourf(
+            xgrid, ygrid, grid, levels=np.linspace(0, max_level, 11), cmap=cmap, extend="both"
+        )
         if show_boundary:
             ax.contour(nvec, dvec, grid, levels=(0.9, 1), colors=("k",), linewidths=(2,))
         fig.colorbar(cs, ax=ax)
@@ -90,6 +96,7 @@ if __name__ == "__main__":
         nvec,
         dvec,
         cmap=args.cmap,
+        max_level=args.max_level,
         show_boundary=args.show_boundary,
         subplots=args.subplots,
     )

@@ -3,16 +3,44 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 
-def get_activation(act: str):
-    if act == "relu":
-        return nn.ReLU()
-    if act == "leaky_relu":
-        return nn.LeakyReLU()
-    if act == "tanh":
-        return nn.Tanh()
-    if act == "sigmoid":
-        return nn.Sigmoid()
-    raise NotImplementedError
+activations = {
+    "relu": nn.ReLU(),
+    "leaky_relu": nn.LeakyReLU(),
+    "tanh": nn.Tanh(),
+    "sigmoid": nn.Sigmoid(),
+    "gelu": nn.GELU(),
+}
+
+
+class ReLUplain(nn.Module):
+    """
+    ReLU with skip connection and no normalization
+
+    In order:
+    - Concat of:
+        - Relu path: Linear layer (d, m), then ReLU
+        - Skip path: Linear layer (d, 1)
+    - Linear (alpha) layer (m + 1, 1)
+
+    m is number of neurons in the hidden layer
+    n is unused
+    d is dimension of the input
+    """
+
+    def __init__(self, m, n, d, act):
+        super().__init__()
+
+        self.W_relu = nn.Linear(d, m, bias=False)
+        self.alpha_relu = nn.Linear(m, 1, bias=False)
+
+        self.act = act
+
+    def forward(self, X):
+        y = self.alpha_relu(self.act(self.W_relu(X)))
+        return y
+
+    def name(self):
+        return "ReLU_network_plain"
 
 
 class ReLUnormal(nn.Module):
@@ -38,12 +66,12 @@ class ReLUnormal(nn.Module):
         self.w2 = nn.Linear(self.m, 1, bias=False)
         self.alpha = nn.Parameter(torch.ones(self.m))
 
-        self.act = get_activation(act)
+        self.act = act
 
     def forward(self, X):
         Xu = self.act(self.W1(X))
-        y1 = self.alpha @ F.normalize(Xu, dim=0)
-        y = self.w2(y1)
+        out = self.alpha * F.normalize(Xu, dim=0)
+        y = self.w2(out)
         return y
 
     def name(self):
@@ -75,7 +103,7 @@ class ReLUskip(nn.Module):
         self.w_skip = nn.Linear(d, 1, bias=False)
         self.alpha_skip = nn.Linear(1, 1, bias=False)
 
-        self.act = get_activation(act)
+        self.act = act
 
     def forward(self, X):
         out_relu = self.alpha_relu(self.act(self.W_relu(X)))

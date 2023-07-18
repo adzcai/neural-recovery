@@ -113,6 +113,7 @@ class ConvexReLUNormalized(ConvexProgram):
         where Dj is the corresponding diagonal arrangement pattern,
         and then compare the learned neurons with this expression.
         """
+        metrics = super().get_metrics(X, W_true, D_mat, ind, tol)
         k = W_true.shape[1]
 
         # element of [p]^k. the indices of the planted neurons in D_mat
@@ -135,7 +136,7 @@ class ConvexReLUNormalized(ConvexProgram):
         dis_abs = np.linalg.norm(diff, ord="fro")
         recovery = np.allclose(diff, 0, atol=tol)
 
-        return {
+        return metrics | {
             "dis_abs": dis_abs,
             "recovery": recovery,
         }

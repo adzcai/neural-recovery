@@ -3,12 +3,16 @@ import cvxpy as cp
 import numpy as np
 
 from training.common import Variables, generate_X, generate_y
-from utils import Args
+from utils import ALL_FORMS, Args
 
 
 class ConvexProgram(ABC):
     def __init__(self, form: str, X: np.ndarray, y: np.ndarray, D_mat: np.ndarray, beta: float):
         super().__init__()
+
+        assert (
+            form in ALL_FORMS and form != "gd"
+        ), "form must be one of 'exact', 'approx', or 'relaxed'."
 
         self.X = X
         self.y = y
@@ -63,7 +67,13 @@ class ConvexProgram(ABC):
         :param ind: (p,) indices of the arrangement patterns in the initial random order
         :param tol: the tolerance to use for checking if a learned neuron matches the grounded truth
         """
-        raise NotImplementedError
+
+        W = self.W_pos.value
+        if self.W_neg is not None:
+            W -= self.W_neg.value
+        return {
+            "other_norm": np.linalg.norm(W, ord="fro"),
+        }
 
     def get_test_err(
         self,
@@ -85,5 +95,7 @@ class ConvexProgram(ABC):
             normalize=planted == "normalized",
         )
         y_hat = self.predict(X_test)
-        test_err = np.linalg.norm(y_hat - y_true)
-        return test_err
+        squared_err = (y_hat - y_true) ** 2
+        test_err = np.mean(squared_err)
+        test_dis = np.sqrt(squared_err.sum())
+        return test_err, test_dis

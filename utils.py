@@ -1,7 +1,10 @@
+from typing import Literal
 import numpy as np
 import os
 import argparse
 from dataclasses import asdict, dataclass
+
+from training.networks import activations
 
 
 ALL_PLANTED = ["linear", "plain", "normalized"]
@@ -15,12 +18,12 @@ class Args:
     Arguments for the experiment. See get_parser for details.
     """
 
-    planted: str
-    learned: str
-    form: str
+    planted: Literal["linear", "plain", "normalized"]
+    learned: Literal["plain", "skip", "normalized"]
+    form: Literal["gd", "exact", "approx", "relaxed"]
 
-    n: int = 400
-    d: int = 100
+    n: int = 100
+    d: int = 50
     k: int = None
 
     sigma: float = 0.0
@@ -38,7 +41,9 @@ class Args:
     save_folder: str = "./results/"
     cmap: str = "jet"
 
-    epochs: int = 100
+    # nonconvex training
+    m: int = None
+    epochs: int = 200
     lr: float = 2e-3
     beta: float = 1e-6
     activation: str = "relu"
@@ -81,11 +86,15 @@ class Args:
             ("n", "n"),
             ("d", "d"),
             ("w", "optw"),
+            ("k", "k"),
             ("X", "optx"),
             ("stdev", "sigma"),
             ("sample", "sample"),
         ):
             folder_path += f"__{short}{getattr(self, arg)}"
+
+        if self.form == "gd":
+            folder_path += f"__epochs{self.epochs}__lr{self.lr}__beta{self.beta}__m{self.m}__act{self.activation}"
 
         return folder_path + "/"
 
@@ -147,14 +156,12 @@ def get_parser():
     parser.add_argument("--cmap", type=str, help="the matplotlib cmap to use")
 
     # nonconvex training
+    parser.add_argument("--m", type=int, help="number of neurons in the hidden layer")
     parser.add_argument("--epochs", type=int, help="number of training epochs")
     parser.add_argument("--beta", type=float, help="weight decay parameter")
     parser.add_argument("--lr", type=float, help="learning rate")
     parser.add_argument(
-        "--activation",
-        type=str,
-        choices=["relu", "sigmoid", "tanh", "gelu"],
-        help="activation function",
+        "--activation", type=str, choices=activations.keys(), help="activation function"
     )
 
     return parser
